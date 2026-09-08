@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="380" viewBox="0 0 1280 380" role="img" aria-labelledby="title desc">
+  <title id="title">agent_room — 一个项目，一起把工作推进</title>
+  <desc id="desc">多人共享项目会话，从讨论、执行到人工验收，保留任务记录。</desc>
+  <defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#edf4e9"/><stop offset="1" stop-color="#f8f9f3"/></linearGradient></defs>
+  <rect width="1280" height="380" rx="24" fill="url(#bg)"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans CJK SC', sans-serif">
+    <rect x="54" y="52" width="48" height="48" rx="14" fill="#42795c"/>
+    <text x="69" y="87" fill="white" font-family="Georgia,serif" font-style="italic" font-size="42">a</text>
+    <text x="120" y="88" fill="#26362f" font-size="36" font-weight="700">agent_room</text>
+    <text x="54" y="164" fill="#26362f" font-size="38" font-weight="650">一个项目，一起把工作推进。</text>
+    <text x="56" y="212" fill="#596c5f" font-size="20">共享 Codex 会话 · 明确任务归属 · 保留验收记录</text>
+    <rect x="54" y="261" width="112" height="36" rx="18" fill="#dcebd9"/>
+    <text x="110" y="285" text-anchor="middle" fill="#356349" font-size="15">开源 · MIT</text>
+    <text x="186" y="285" fill="#596c5f" font-size="15">Linux Host / macOS &amp; Linux Client</text>
+    <g transform="translate(800 49)">
+      <path d="M28 50 V233" stroke="#b9cfb7" stroke-width="2"/>
+      <g><rect width="412" height="78" rx="14" fill="white" stroke="#dce5d7"/><circle cx="38" cy="39" r="18" fill="#edf4e9"/><text x="38" y="45" text-anchor="middle" fill="#42795c" font-size="14">01</text><text x="76" y="34" fill="#26362f" font-size="19" font-weight="600">共享项目</text><text x="76" y="58" fill="#748079" font-size="14">成员审批 · 同步聊天 · 本地 Dashboard</text></g>
+      <g transform="translate(0 101)"><rect width="412" height="78" rx="14" fill="white" stroke="#dce5d7"/><circle cx="38" cy="39" r="18" fill="#edf4e9"/><text x="38" y="45" text-anchor="middle" fill="#42795c" font-size="14">02</text><text x="76" y="34" fill="#26362f" font-size="19" font-weight="600">推进任务</text><text x="76" y="58" fill="#748079" font-size="14">消息转任务 · 排队执行 · 追加工作</text></g>
+      <g transform="translate(0 202)"><rect width="412" height="78" rx="14" fill="#42795c"/><circle cx="38" cy="39" r="18" fill="#ffffff22"/><text x="38" y="45" text-anchor="middle" fill="white" font-size="14">03</text><text x="76" y="34" fill="white" font-size="19" font-weight="600">验收结果</text><text x="76" y="58" fill="#e1eddf" font-size="14">查看执行记录 · 标记完成 · 重新打开</text></g>
+    </g>
+  </g>
+</svg>
