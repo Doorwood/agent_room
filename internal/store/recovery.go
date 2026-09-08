@@ -81,7 +81,7 @@ func (s *Store) LoadRecoveryImage(ctx context.Context, roomID room.RoomID) (room
 	}
 
 	rows, err = tx.QueryContext(ctx, `
-		SELECT m.client_message_id, m.body, m.actor_uid, members.username, m.accepted_seq
+		SELECT m.client_message_id, m.body, m.actor_uid, members.username, m.accepted_seq, coalesce((SELECT task_id FROM task_messages WHERE room_id=m.room_id AND message_id=m.id),0)
 		FROM messages m JOIN members ON members.room_id = m.room_id AND members.uid = m.actor_uid
 		WHERE m.room_id = ? AND m.kind IN ('prompt','recovery-prompt') AND m.state = 'queued'
 		ORDER BY m.accepted_seq`, roomID)
@@ -90,7 +90,7 @@ func (s *Store) LoadRecoveryImage(ctx context.Context, roomID room.RoomID) (room
 	}
 	for rows.Next() {
 		var queued room.QueuedMessage
-		if err := rows.Scan(&queued.Input.ClientMessageID, &queued.Input.Text, &queued.Actor.UID, &queued.Actor.Name, &queued.AcceptedSeq); err != nil {
+		if err := rows.Scan(&queued.Input.ClientMessageID, &queued.Input.Text, &queued.Actor.UID, &queued.Actor.Name, &queued.AcceptedSeq, &queued.Input.TaskID); err != nil {
 			rows.Close()
 			return room.RecoveryImage{}, fmt.Errorf("scan recovery queue: %w", err)
 		}
@@ -445,7 +445,7 @@ func (s *Store) ResolveReview(ctx context.Context, roomID room.RoomID, actor roo
 			}
 			recovery.Events = append(recovery.Events, event)
 			if input.Action == room.RecoveryContinue {
-				replacement, err := insertRecoveryPrompt(ctx, tx, roomID, actor, input.ReplacementMessageID, input.Instruction)
+				replacement, err := insertRecoveryPrompt(ctx, tx, roomID, actor, input.ReplacementMessageID, input.Instruction, target.id)
 				if err != nil {
 					return err
 				}
@@ -556,7 +556,7 @@ func recoveryRetryState(kind string) room.RequestState {
 	return room.RequestDispatching
 }
 
-func insertRecoveryPrompt(ctx context.Context, tx *sql.Tx, roomID room.RoomID, actor room.Actor, clientID room.ClientMessageID, instruction string) (room.DurableEvent, error) {
+func insertRecoveryPrompt(ctx context.Context, tx *sql.Tx, roomID room.RoomID, actor room.Actor, clientID room.ClientMessageID, instruction string, sourceMessageID int64) (room.DurableEvent, error) {
 	bodyJSON, _ := json.Marshal(struct {
 		Text string `json:"text"`
 	}{instruction})
@@ -581,6 +581,15 @@ func insertRecoveryPrompt(ctx context.Context, tx *sql.Tx, roomID room.RoomID, a
 	}
 	if _, err := tx.ExecContext(ctx, "INSERT INTO turn_bindings(room_id, message_id, state) VALUES (?, ?, ?)", roomID, messageID, room.RequestQueued); err != nil {
 		return room.DurableEvent{}, fmt.Errorf("insert recovery prompt binding: %w", err)
+	}
+	var taskID int64
+	err = tx.QueryRowContext(ctx, "SELECT task_id FROM task_messages WHERE room_id=? AND message_id=?", roomID, sourceMessageID).Scan(&taskID)
+	if err == nil {
+		if err = attachTaskMessage(ctx, tx, roomID, actor, taskID, messageID); err != nil {
+			return room.DurableEvent{}, err
+		}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return room.DurableEvent{}, err
 	}
 	return insertEventAt(ctx, tx, roomID, seq, actor.UID, "message/accepted", struct {
 		ClientMessageID room.ClientMessageID `json:"client_message_id"`

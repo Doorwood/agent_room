@@ -12,16 +12,19 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Entry struct {
-	Seq      int64    `json:"seq"`
-	Session  string   `json:"session"`
-	UID      room.UID `json:"uid"`
-	Name     string   `json:"name"`
-	Question string   `json:"question"`
-	Answer   string   `json:"answer"`
-	State    string   `json:"state"`
+	CreatedAt   string   `json:"createdAt,omitempty"`
+	CompletedAt string   `json:"completedAt,omitempty"`
+	Seq         int64    `json:"seq"`
+	Session     string   `json:"session"`
+	UID         room.UID `json:"uid"`
+	Name        string   `json:"name"`
+	Question    string   `json:"question"`
+	Answer      string   `json:"answer"`
+	State       string   `json:"state"`
 }
 type SharedRunner func(context.Context, room.Actor, room.ClientMessageID, string) (room.QuestionAnswer, error)
 
@@ -42,6 +45,19 @@ func Open(dir string, runner SharedRunner) (*Service, error) {
 		db.Close()
 		return nil, err
 	}
+	for _, column := range []string{"created_at", "completed_at"} {
+		var count int
+		if err = db.QueryRow("SELECT count(*) FROM pragma_table_info('questions') WHERE name=?", column).Scan(&count); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if count == 0 {
+			if _, err = db.Exec("ALTER TABLE questions ADD COLUMN " + column + " TEXT NOT NULL DEFAULT ''"); err != nil {
+				db.Close()
+				return nil, err
+			}
+		}
+	}
 	return &Service{db: db, runner: runner}, nil
 }
 func (s *Service) Close() error { return s.db.Close() }
@@ -50,7 +66,7 @@ func (s *Service) List(ctx context.Context, uid room.UID, all bool, before int64
 	if before <= 0 {
 		before = 1<<63 - 1
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT seq,session,uid,name,question,answer,state FROM questions WHERE (? OR uid=?) AND seq<? ORDER BY seq DESC LIMIT 50`, all, uid, before)
+	rows, err := s.db.QueryContext(ctx, `SELECT seq,session,uid,name,question,answer,state,created_at,completed_at FROM questions WHERE (? OR uid=?) AND seq<? ORDER BY seq DESC LIMIT 50`, all, uid, before)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +74,7 @@ func (s *Service) List(ctx context.Context, uid room.UID, all bool, before int64
 	result := []Entry{}
 	for rows.Next() {
 		var e Entry
-		if err := rows.Scan(&e.Seq, &e.Session, &e.UID, &e.Name, &e.Question, &e.Answer, &e.State); err != nil {
+		if err := rows.Scan(&e.Seq, &e.Session, &e.UID, &e.Name, &e.Question, &e.Answer, &e.State, &e.CreatedAt, &e.CompletedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, e)
@@ -79,7 +95,7 @@ func (s *Service) Ask(ctx context.Context, m room.Member, id, text string) (Entr
 	}
 	defer s.mu.Unlock()
 	var e Entry
-	err = s.db.QueryRowContext(ctx, `SELECT seq,session,uid,name,question,answer,state FROM questions WHERE uid=? AND request_id=?`, m.UID, id).Scan(&e.Seq, &e.Session, &e.UID, &e.Name, &e.Question, &e.Answer, &e.State)
+	err = s.db.QueryRowContext(ctx, `SELECT seq,session,uid,name,question,answer,state,created_at,completed_at FROM questions WHERE uid=? AND request_id=?`, m.UID, id).Scan(&e.Seq, &e.Session, &e.UID, &e.Name, &e.Question, &e.Answer, &e.State, &e.CreatedAt, &e.CompletedAt)
 	if err == nil {
 		if e.Question != text {
 			return Entry{}, errors.New("request ID conflict")
@@ -94,7 +110,8 @@ func (s *Service) Ask(ctx context.Context, m room.Member, id, text string) (Entr
 	e.Name = m.Name
 	e.Question = text
 	e.State = "running"
-	result, err := s.db.ExecContext(ctx, `INSERT INTO questions(uid,name,request_id,session,question,state)VALUES(?,?,?,?,?,'running')`, m.UID, m.Name, id, e.Session, text)
+	e.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	result, err := s.db.ExecContext(ctx, `INSERT INTO questions(uid,name,request_id,session,question,state,created_at)VALUES(?,?,?,?,?,'running',?)`, m.UID, m.Name, id, e.Session, text, e.CreatedAt)
 	if err != nil {
 		return e, err
 	}
@@ -111,6 +128,7 @@ func (s *Service) Ask(ctx context.Context, m room.Member, id, text string) (Entr
 		e.Answer = e.Answer[:32000]
 	}
 	// Persist a terminal outcome even if this individual request was disconnected.
-	_, err = s.db.Exec(`UPDATE questions SET answer=?,state=?,session=? WHERE seq=?`, e.Answer, e.State, e.Session, e.Seq)
+	e.CompletedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	_, err = s.db.Exec(`UPDATE questions SET answer=?,state=?,session=?,completed_at=? WHERE seq=?`, e.Answer, e.State, e.Session, e.CompletedAt, e.Seq)
 	return e, err
 }

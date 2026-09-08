@@ -12,6 +12,7 @@ import (
 // Submission carries a stable browser message ID through reconnects and retries.
 // Result is buffered so an expired HTTP request cannot block the client loop.
 type Submission struct {
+	TaskID         int64
 	Method         string
 	ExpectedTurnID string
 	Context        context.Context
@@ -27,8 +28,11 @@ func (s Submission) envelope() (protocol.Envelope, error) {
 	}
 	var body any
 	switch method {
-	case "submit":
-		request := protocol.SubmitRequest{ClientMessageID: s.ID, Text: s.Text}
+	case "submit", "task_submit":
+		if (method == "task_submit") != (s.TaskID > 0) {
+			return protocol.Envelope{}, errors.New("invalid task submission")
+		}
+		request := protocol.SubmitRequest{ClientMessageID: s.ID, Text: s.Text, TaskID: s.TaskID}
 		if err := request.Validate(); err != nil {
 			return protocol.Envelope{}, err
 		}

@@ -7,13 +7,14 @@ import (
 	"fmt"
 )
 
-const schemaVersion = 4
+const schemaVersion = 5
 
 var migrationFiles = []string{
 	"schema/001_initial.sql",
 	"schema/002_room_integrity.sql",
 	"schema/003_roles.sql",
 	"schema/004_private_turns.sql",
+	"schema/005_project_tasks.sql",
 }
 
 //go:embed schema/*.sql
@@ -136,6 +137,14 @@ func validateSchemaAtVersion(ctx context.Context, db migrationQuerier, version i
 	}
 	if err := validateForeignKeys(ctx, db); err != nil {
 		return err
+	}
+	if version >= 5 {
+		for _, table := range []string{"project_tasks", "task_messages", "task_changes", "task_receipts"} {
+			var n int
+			if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil {
+				return fmt.Errorf("missing task schema: %w", err)
+			}
+		}
 	}
 	if version >= 4 {
 		for _, table := range []string{"private_turns", "private_turn_frontiers"} {

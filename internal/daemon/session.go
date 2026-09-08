@@ -225,7 +225,7 @@ func (s *Server) dispatch(ctx context.Context, w sessionWriter, actor room.Actor
 		}
 	}
 	switch e.Method {
-	case "submit", "note", "steer", "cancel", "recover", "resolve":
+	case "submit", "task_submit", "note", "steer", "cancel", "recover", "resolve":
 		if len(e.Body) > MaximumMutationBodyBytes {
 			return false, w.fail(e.ID, "message-too-large")
 		}
@@ -233,13 +233,16 @@ func (s *Server) dispatch(ctx context.Context, w sessionWriter, actor room.Actor
 	var out any = protocol.Empty{}
 	var err error
 	switch e.Method {
-	case "submit", "note":
+	case "submit", "task_submit", "note":
 		in, decodeErr := protocol.DecodeBody[protocol.SubmitRequest](e.Body)
 		if decodeErr != nil {
 			return invalid()
 		}
-		input := room.SubmitInput{ClientMessageID: room.ClientMessageID(in.ClientMessageID), Text: in.Text}
-		if e.Method == "submit" {
+		if (e.Method == "task_submit") != (in.TaskID > 0) {
+			return invalid()
+		}
+		input := room.SubmitInput{ClientMessageID: room.ClientMessageID(in.ClientMessageID), Text: in.Text, TaskID: in.TaskID}
+		if e.Method != "note" {
 			out, err = s.deps.Coordinator.Submit(ctx, actor, input)
 		} else {
 			out, err = s.deps.Coordinator.Note(ctx, actor, input)

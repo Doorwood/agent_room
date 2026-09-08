@@ -130,12 +130,16 @@ func (s *Store) AcceptMessage(ctx context.Context, roomID room.RoomID, actor roo
 		return room.Acceptance{}, err
 	}
 	bodyJSON, _ := json.Marshal(struct {
-		Text string `json:"text"`
-	}{Text: input.Text})
-	return s.accept(ctx, roomID, actor, input.ClientMessageID, "prompt", input.Text, canonicalHash("prompt", actor.UID, bodyJSON), room.RequestQueued, true, "message/accepted")
+		Text   string `json:"text"`
+		TaskID int64  `json:"taskId,omitempty"`
+	}{Text: input.Text, TaskID: input.TaskID})
+	return s.accept(ctx, roomID, actor, input.ClientMessageID, "prompt", input.Text, canonicalHash("prompt", actor.UID, bodyJSON), room.RequestQueued, true, "message/accepted", input.TaskID)
 }
 
 func (s *Store) AppendNote(ctx context.Context, roomID room.RoomID, actor room.Actor, input room.SubmitInput) (room.Acceptance, error) {
+	if input.TaskID != 0 {
+		return room.Acceptance{}, ErrInvalidInput
+	}
 	if err := input.Validate(); err != nil {
 		return room.Acceptance{}, err
 	}
@@ -173,7 +177,7 @@ func canonicalHash(kind string, actorUID room.UID, semanticBody []byte) []byte {
 	return digest[:]
 }
 
-func (s *Store) accept(ctx context.Context, roomID room.RoomID, actor room.Actor, clientID room.ClientMessageID, kind, body string, payloadHash []byte, initial room.RequestState, binding bool, eventKind string) (room.Acceptance, error) {
+func (s *Store) accept(ctx context.Context, roomID room.RoomID, actor room.Actor, clientID room.ClientMessageID, kind, body string, payloadHash []byte, initial room.RequestState, binding bool, eventKind string, taskIDs ...int64) (room.Acceptance, error) {
 	if err := validateRoomID(roomID); err != nil {
 		return room.Acceptance{}, err
 	}
@@ -213,6 +217,11 @@ func (s *Store) accept(ctx context.Context, roomID room.RoomID, actor room.Actor
 		messageID, err := result.LastInsertId()
 		if err != nil {
 			return fmt.Errorf("read inserted message id: %w", err)
+		}
+		if len(taskIDs) > 0 && taskIDs[0] > 0 {
+			if err := attachTaskMessage(ctx, tx, roomID, actor, taskIDs[0], messageID); err != nil {
+				return err
+			}
 		}
 		if binding {
 			var turnID any

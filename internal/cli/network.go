@@ -300,6 +300,7 @@ func runJoinView(ctx context.Context, host, session, name string, view, readOnly
 		window.EnableUploads(launcher.Upload)
 		window.EnableDownloads(launcher.Download)
 		window.EnableQuestions(launcher.Query)
+		window.EnableTasks(launcher.Tasks)
 		window.DraftDirectory(filepath.Join(cfgRoot, "agent_room", "drafts"))
 		window.Metadata(address, session, name)
 		deps.OnAnswer = window.Add

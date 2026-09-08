@@ -1,3 +1,4 @@
+import {setupTasks,setTime} from './tasks.mjs';
 import {groupMessages} from './group.mjs';
 import {renderMarkdown} from './markdown.mjs';
 const container = document.getElementById('answers');
@@ -21,8 +22,8 @@ let attempt = null;
 let restored = false;let draftWrites=Promise.resolve();
 const draftKey = 'agent-room-draft:' + location.pathname;
 function saveDraft() {
-  const draft={text:input.value,attempt,askText:document.getElementById('ask-text').value,questionAttempt,attachments:attachments.filter(a=>a.path).map(({name,path,size})=>({name,path,size}))};
-  if(lastState?.session)draftWrites=draftWrites.catch(()=>{}).then(async()=>{const response=await fetch('draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(draft)});if(!response.ok)throw new Error('草稿未保存');document.getElementById('draft-status').textContent=draft.text || draft.askText || draft.attachments.length?'草稿已保存到本机':'';}).catch(()=>{sendStatus.textContent='草稿未保存到本机，请暂勿关闭页面';});
+  const draft={taskDrafts:tasks.draft(),text:input.value,attempt,askText:document.getElementById('ask-text').value,questionAttempt,attachments:attachments.filter(a=>a.path).map(({name,path,size})=>({name,path,size}))};
+  if(lastState?.session)draftWrites=draftWrites.catch(()=>{}).then(async()=>{const response=await fetch('draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(draft)});if(!response.ok)throw new Error('草稿未保存');document.getElementById('draft-status').textContent=draft.text || draft.askText || draft.attachments.length || Object.values(draft.taskDrafts || {}).some(d=>d.text)?'草稿已保存到本机':'';}).catch(()=>{sendStatus.textContent='草稿未保存到本机，请暂勿关闭页面';});
   try { sessionStorage.setItem(draftKey, JSON.stringify(draft)); } catch { /* Storage is optional; in-memory retry IDs remain valid. */ }
 }
 input.addEventListener('input', saveDraft);
@@ -101,19 +102,23 @@ document.getElementById('copy-session').addEventListener('click', async event =>
   try {await navigator.clipboard.writeText(lastState.session);event.target.textContent='已复制';}
   catch {event.target.textContent='请选中上方文本复制';}
 });
+const tasks=setupTasks({getState:()=>lastState,saveDraft,changeView:()=>{questionView=false;applyQuestionView();}});
 const cards = new Map();
 function card(answer) {
   const article = document.createElement('article');
   const bar = document.createElement('div');bar.className = 'answer-bar';
   const label = document.createElement('span');label.className = 'message-author';
   const copy = document.createElement('button');copy.textContent = '复制';
-  const record = {article, label, copy, answer, signature:'', wasFinal:false, initialized:false, hadProgress:false};
+  const stamp=document.createElement('time');stamp.className='message-time';
+  const convert=document.createElement('button');convert.className='convert-task';convert.textContent='转为任务';convert.hidden=true;
+  const record = {article, label, copy, stamp, convert, answer, signature:'', wasFinal:false, initialized:false, hadProgress:false};
   copy.addEventListener('click', async () => {
     try {await navigator.clipboard.writeText(record.answer.text);copy.textContent = '已复制';}
     catch {copy.textContent = '复制失败，请选中文字';}
     setTimeout(() => {copy.textContent = '复制';}, 2000);
   });
-  bar.append(label, copy);
+  convert.onclick=()=>tasks.convert(record.answer);
+  bar.append(label,stamp,convert,copy);
   const body = document.createElement('div');body.className = 'answer-text';
   const acknowledgement = document.createElement('div');acknowledgement.className = 'acknowledgement';acknowledgement.setAttribute('role','status');
   const details = document.createElement('details');details.className = 'task-progress';
@@ -130,6 +135,9 @@ function updateCard(article, answer) {
   const r = article.record;
   const signature = JSON.stringify(answer);
   r.answer = answer;
+  setTime(r.stamp,answer.time);r.stamp.hidden=answer.role==='assistant' && !answer.time && !answer.final;
+  r.convert.dataset.seq=(answer.seq && (answer.role==='user' && ['prompt','note','recovery-prompt'].includes(answer.kind) || answer.role==='assistant' && answer.final))?String(answer.seq):'';
+  r.convert.hidden=lastState?.userRole!=='roommate' || !r.convert.dataset.seq;
   if (r.signature === signature) return;
   r.signature = signature;
   article.className = answer.role === 'user' ? 'user-message' : 'model-message task-message';
@@ -172,7 +180,7 @@ function renderState(state, prepend=false) {
     document.getElementById('role-label').textContent=({roommate:'协作成员',visitor:'参观者 · 仅查看和搜索聊天记录',asker:'询问者 · 请切换到询问者问答'})[role] || role;
     document.getElementById('queue-panel').hidden=role!=='roommate';
     const queue=state.queue || [];document.getElementById('queue-summary').textContent='待执行任务 · '+queue.length+(state.activeTurn?'（另有 1 项执行中）':'');const queueList=document.getElementById('queue-list');queueList.replaceChildren();for(const entry of queue){const li=document.createElement('li');li.textContent=entry.Actor.Name+'：'+entry.Input.Text.slice(0,160);queueList.append(li);}
-    form.hidden=role!=='roommate';document.getElementById('conversation-views').hidden=role==='visitor' || !state.userRole;
+    form.hidden=role!=='roommate';document.getElementById('conversation-views').hidden=!state.userRole;document.getElementById('question-view').hidden=role==='visitor';tasks.updateRole();
     applyQuestionView();
     document.getElementById('ask-form').hidden=role!=='asker';document.getElementById('ask-send').disabled=!state.askReady || asking;
     document.getElementById('ask-readiness').textContent=state.askReady?'复用 Host 的 Codex 登录和会话；主任务忙碌时请稍后提问':'Host 暂不支持只读问答，请联系房主';
@@ -189,7 +197,7 @@ function renderState(state, prepend=false) {
     historyButton.hidden=!hasMore;
     document.getElementById('notice').hidden = true;
     document.body.classList.toggle('has-answers', answers.length > 0);
-    if (!prepend && nearEnd && answers.length) window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
+    if (!prepend && !tasks.isVisible() && !questionView && nearEnd && answers.length) window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
 }
 async function poll() {
   try {
@@ -200,7 +208,7 @@ async function poll() {
     available = true;
     if (!restored) {
       restored = true;
-      try {const draftResponse=await fetch('draft',{cache:'no-store'});const saved = draftResponse.ok ? await draftResponse.json() : JSON.parse(sessionStorage.getItem(draftKey)); if (saved && !input.value) {input.value = saved.text || ''; attempt = saved.attempt || null;attachments=saved.attachments || [];document.getElementById("ask-text").value=saved.askText || "";questionAttempt=saved.questionAttempt || null;renderAttachments();}} catch { /* Ignore unavailable storage. */ }
+      try {const draftResponse=await fetch('draft',{cache:'no-store'});const saved = draftResponse.ok ? await draftResponse.json() : JSON.parse(sessionStorage.getItem(draftKey)); if(saved)tasks.restore(saved.taskDrafts); if (saved && !input.value) {input.value = saved.text || ''; attempt = saved.attempt || null;attachments=saved.attachments || [];document.getElementById("ask-text").value=saved.askText || "";questionAttempt=saved.questionAttempt || null;renderAttachments();}} catch { /* Ignore unavailable storage. */ }
     }
     if (room !== state.room) {
       container.replaceChildren();
@@ -311,7 +319,7 @@ document.getElementById('history-search').addEventListener('submit',e=>{e.preven
 async function loadQuestions(append=false){
  const list=document.getElementById('questions-list');if(!append){questionsBefore=0;list.replaceChildren();}
  try{const response=await fetch('questions?'+new URLSearchParams({before:String(questionsBefore),uid:questionMember}),{cache:'no-store'});if(!response.ok)throw new Error(await response.text());const data=await response.json();
- for(const item of data.entries || []){const card=document.createElement('article');const heading=document.createElement('strong');heading.textContent=item.name+' · '+({running:'回答中',completed:'已回答',failed:'未完成'}[item.state] || item.state);const q=document.createElement('p');q.textContent=item.question;const a=document.createElement('div');renderMarkdown(a,item.answer || '正在回答…');card.append(heading,q,a);list.append(card);questionsBefore=item.seq;}
+ for(const item of data.entries || []){const card=document.createElement('article');const heading=document.createElement('strong');heading.textContent=item.name+' · '+({running:'回答中',completed:'已回答',failed:'未完成'}[item.state] || item.state);const q=document.createElement('p');q.textContent=item.question;const a=document.createElement('div');renderMarkdown(a,item.answer || '正在回答…');const qt=document.createElement("time"),at=document.createElement("time");setTime(qt,item.createdAt);setTime(at,item.completedAt);at.hidden=item.state==='running';card.append(heading,qt,q,at,a);list.append(card);questionsBefore=item.seq;}
  document.getElementById('questions-more').hidden=!data.more;
  if(!list.children.length)list.textContent='暂无问答记录';
  }catch(error){document.getElementById('ask-status').textContent=error.message;}
@@ -330,11 +338,14 @@ function applyQuestionView(){
  if(!allowed)questionView=false;
  document.getElementById('questions-panel').hidden=!questionView;
  for(const selector of ['#answers','#history-search','#search-results','#filter-label','.intro','#empty','#load-history','#queue-panel','.composer-wrap']){
-  const el=document.querySelector(selector);if(el)el.classList.toggle('question-view-hidden',questionView);
+  const el=document.querySelector(selector);if(el)el.classList.toggle('question-view-hidden',questionView || tasks.isVisible());
  }
- document.getElementById('main-view').setAttribute('aria-pressed',String(!questionView));document.getElementById('question-view').setAttribute('aria-pressed',String(questionView));
+ document.getElementById('main-view').setAttribute('aria-pressed',String(!questionView && !tasks.isVisible()));document.getElementById('question-view').setAttribute('aria-pressed',String(questionView));
+ document.getElementById('task-view').setAttribute('aria-pressed',String(tasks.isVisible()));
  const isMember=lastState?.userRole==='roommate';document.getElementById('question-member').hidden=!isMember;document.getElementById('question-member-label').hidden=!isMember;
 }
-document.getElementById('main-view').onclick=()=>{questionView=false;applyQuestionView();};
-document.getElementById('question-view').onclick=()=>{questionView=true;applyQuestionView();const panel=document.getElementById('questions-panel');if(panel.open)loadQuestions();else panel.open=true;};
+document.getElementById('main-view').onclick=()=>{tasks.show(false);questionView=false;applyQuestionView();};
+document.getElementById('question-view').onclick=()=>{tasks.show(false);questionView=true;applyQuestionView();const panel=document.getElementById('questions-panel');if(panel.open)loadQuestions();else panel.open=true;};
 document.getElementById('question-member').onchange=event=>{questionMember=event.target.value;loadQuestions();};
+
+document.getElementById('task-view').onclick=()=>tasks.show(true);

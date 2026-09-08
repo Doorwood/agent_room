@@ -114,3 +114,24 @@ func testBrowserSubmissionAck(t *testing.T, method string) {
 		t.Fatal("client leaked")
 	}
 }
+
+func TestTaskSubmissionUsesDistinctMethodAndPreservesTaskID(t *testing.T) {
+	s := Submission{Method: "task_submit", TaskID: 42, ID: "00000000000000000000000000000001", Text: "continue this task"}
+	e, err := s.envelope()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := protocol.DecodeBody[protocol.SubmitRequest](e.Body)
+	if err != nil || body.TaskID != 42 || e.Method != "task_submit" {
+		t.Fatal(e, body, err)
+	}
+	s.Method = "submit"
+	if s.Validate() == nil {
+		t.Fatal("task silently became ordinary work")
+	}
+	s.Method = "task_submit"
+	s.TaskID = 0
+	if s.Validate() == nil {
+		t.Fatal("missing task accepted")
+	}
+}

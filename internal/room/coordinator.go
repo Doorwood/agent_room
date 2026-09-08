@@ -206,7 +206,11 @@ func (c *Coordinator) dispatchNext(ctx context.Context) error {
 		return err
 	}
 	c.state.active = &TurnBinding{MessageID: next.Input.ClientMessageID, State: RequestDispatching}
-	turnID, err := c.agent.StartTurn(ctx, c.state.threadID, next.Input.ClientMessageID, "[participant: "+next.Actor.Name+"]\n"+next.Input.Text)
+	text := "[participant: " + next.Actor.Name + "]\n" + next.Input.Text
+	if next.Input.TaskID > 0 {
+		text = fmt.Sprintf("[project task id: %d]\n", next.Input.TaskID) + text
+	}
+	turnID, err := c.agent.StartTurn(ctx, c.state.threadID, next.Input.ClientMessageID, text)
 	if err != nil {
 		code, digest, certainty := mutationFailure(err)
 		if certainty == DeliveryNotSent {

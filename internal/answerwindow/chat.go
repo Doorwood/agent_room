@@ -81,6 +81,7 @@ func (w *Window) post(out http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
+		TaskID       int64  `json:"taskId,omitempty"`
 		ExpectedTurn string `json:"expectedTurn"`
 		ID           string `json:"id"`
 		Text         string `json:"text"`
@@ -93,7 +94,10 @@ func (w *Window) post(out http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	submission := client.Submission{Context: ctx, ID: body.ID, Text: body.Text, Result: make(chan error, 1)}
+	submission := client.Submission{Context: ctx, ID: body.ID, Text: body.Text, TaskID: body.TaskID, Result: make(chan error, 1)}
+	if body.TaskID > 0 {
+		submission.Method = "task_submit"
+	}
 	if r.URL.Path == w.path+"cancel" {
 		submission.Method = "cancel"
 		submission.ExpectedTurnID = body.ExpectedTurn

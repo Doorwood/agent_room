@@ -8,7 +8,7 @@ export function groupMessages(messages) {
     if (message.role === 'user' && message.turn && (message.kind === 'prompt' || message.kind === 'recovery-prompt')) prompts.set(message.turn, message);
   }
   function model(key, message, prompt) {
-    const card = {key, role:'assistant', author:'模型', owner:message.owner, turn:message.turn,
+    const card = {key, seq:prompt?.seq || (message.kind==='progress'?0:message.seq), time:message.role==='assistant'?message.time:null, role:'assistant', author:'模型', owner:message.owner, turn:message.turn,
       text:'', progress:[], ack:message.taskStatus || prompt?.ack || '', kind:'task', final:false, working:!(/等待/.test(message.ack || ''))};
     cards.push(card);
     return card;
@@ -30,8 +30,10 @@ export function groupMessages(messages) {
       if (message.turn) turns.set(message.turn, card);
     }
     if (message.taskStatus) card.ack = message.taskStatus;
-    if (message.kind === 'progress') card.progress.push(message.text);
+    if (message.kind === 'progress') {card.progress.push(message.text);if(!card.final)card.time=message.time;}
     else {
+      if(!card.seq)card.seq=message.seq;
+      card.time=message.time;
       card.text += (card.text ? '\n\n' : '') + message.text;
       card.final = true;
     }

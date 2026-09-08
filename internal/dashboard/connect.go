@@ -43,6 +43,7 @@ func (c Catalog) Connect(ctx context.Context, r Room, update Update) error {
 	window.EnableUploads(launcher.Upload)
 	window.EnableDownloads(launcher.Download)
 	window.EnableQuestions(launcher.Query)
+	window.EnableTasks(launcher.Tasks)
 	window.DraftDirectory(filepath.Join(c.Config, "agent_room", "drafts"))
 	window.Metadata(r.Address, r.Session, r.Name)
 	update("connecting", "正在同步 room", window.URL())

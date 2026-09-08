@@ -36,6 +36,9 @@ var markdown []byte
 //go:embed vendor/marked.mjs
 var marked []byte
 
+//go:embed tasks.mjs
+var taskScript []byte
+
 //go:embed style.css
 var style []byte
 
@@ -62,6 +65,7 @@ type Window struct {
 	userRole     string
 	askReady     bool
 	query        QueryFunc
+	tasks        TaskFunc
 	draftDir     string
 	download     DownloadFunc
 	activeTurn   string
@@ -212,7 +216,7 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 		http.Error(out, "invalid origin", http.StatusForbidden)
 		return
 	}
-	if r.Method != http.MethodGet && !(r.Method == http.MethodPost && (r.URL.Path == w.path+"questions" || r.URL.Path == w.path+"draft" || r.URL.Path == w.path+"submit" || r.URL.Path == w.path+"cancel" || r.URL.Path == w.path+"upload")) {
+	if r.Method != http.MethodGet && !(r.Method == http.MethodPost && (r.URL.Path == w.path+"tasks" || r.URL.Path == w.path+"questions" || r.URL.Path == w.path+"draft" || r.URL.Path == w.path+"submit" || r.URL.Path == w.path+"cancel" || r.URL.Path == w.path+"upload")) {
 		out.Header().Set("Allow", "GET")
 		http.Error(out, "read-only", http.StatusMethodNotAllowed)
 		return
@@ -222,6 +226,8 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 	out.Header().Set("Referrer-Policy", "no-referrer")
 	out.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'")
 	switch r.URL.Path {
+	case w.path + "tasks":
+		w.serveTasks(out, r)
 	case w.path + "questions":
 		w.serveQuestions(out, r)
 	case w.path + "draft":
@@ -243,6 +249,9 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 	case w.path:
 		out.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = out.Write(page)
+	case w.path + "tasks.mjs":
+		out.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = out.Write(taskScript)
 	case w.path + "group.mjs":
 		out.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		_, _ = out.Write(grouping)

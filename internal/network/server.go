@@ -163,7 +163,7 @@ func (s *Server) handle(c net.Conn, sessions Sessions) {
 	if err := readJSON(c, &h); err != nil {
 		return
 	}
-	if h.Operation != "" && h.Operation != "upload" && h.Operation != "download" && h.Operation != "questions" {
+	if h.Operation != "" && h.Operation != "upload" && h.Operation != "download" && h.Operation != "questions" && h.Operation != "tasks" {
 		writeJSON(c, Reply{State: "unsupported-operation"})
 		return
 	}
@@ -197,6 +197,10 @@ func (s *Server) handle(c net.Conn, sessions Sessions) {
 		return
 	}
 	_ = c.SetDeadline(time.Time{})
+	if h.Operation == "tasks" {
+		s.serveTasks(c, member, h.Token)
+		return
+	}
 	if h.Operation == "questions" {
 		s.serveQuestions(c, member, h.Token)
 		return

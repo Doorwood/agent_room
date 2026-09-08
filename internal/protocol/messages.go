@@ -38,12 +38,13 @@ func (welcome Welcome) Validate() error {
 }
 
 type SubmitRequest struct {
+	TaskID          int64  `json:"taskId,omitempty"`
 	ClientMessageID string `json:"clientMessageId"`
 	Text            string `json:"text"`
 }
 
 func (request SubmitRequest) Validate() error {
-	return (room.SubmitInput{ClientMessageID: room.ClientMessageID(request.ClientMessageID), Text: request.Text}).Validate()
+	return (room.SubmitInput{ClientMessageID: room.ClientMessageID(request.ClientMessageID), Text: request.Text, TaskID: request.TaskID}).Validate()
 }
 
 type SteerRequest struct {

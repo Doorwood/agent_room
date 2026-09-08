@@ -28,3 +28,17 @@ test('evicted prompt still uses independently retained terminal status',()=>{
  const message={...part(99,10,'a','last progress'),taskStatus:'处理失败，请查看原终端的错误提示。'};
  const cards=groupMessages([message]);assert.equal(cards[0].working,false);assert.equal(cards[0].text,message.taskStatus);
 });
+
+test('model timestamp comes from the answer, preserving source sequence',()=>{
+ const grouped=groupMessages([
+ {seq:10,role:'user',kind:'prompt',turn:'t',text:'work',time:'2026-09-07T12:00:00Z'},
+ {seq:11,role:'assistant',turn:'t',kind:'progress',text:'checking',time:'2026-09-08T12:00:00Z'},
+ {seq:12,role:'assistant',turn:'t',kind:'final',text:'done',time:'2026-09-08T12:01:00Z'}
+ ]);
+ assert.equal(grouped[0].time,'2026-09-07T12:00:00Z');assert.equal(grouped[1].time,'2026-09-08T12:01:00Z');assert.equal(grouped[1].seq,10);
+});
+
+test('evicted prompt uses the final event as convertible source',()=>{
+ const cards=groupMessages([part(50,1,'turn','working'),{...part(51,1,'turn','done','final'),time:'2026-09-08T12:00:00Z'}]);
+ assert.equal(cards[0].seq,51);assert.equal(cards[0].time,'2026-09-08T12:00:00Z');
+});

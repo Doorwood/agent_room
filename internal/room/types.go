@@ -41,6 +41,7 @@ type Actor struct {
 	Name string
 }
 type SubmitInput struct {
+	TaskID          int64 `json:"taskId,omitempty"`
 	ClientMessageID ClientMessageID
 	Text            string
 }
@@ -134,6 +135,9 @@ var ErrInvalidControlKind = errors.New("invalid control kind")
 var ErrInvalidRecovery = errors.New("invalid recovery input")
 
 func (in SubmitInput) Validate() error {
+	if in.TaskID < 0 {
+		return errors.New("invalid task id")
+	}
 	if !ValidClientMessageID(in.ClientMessageID) {
 		return ErrInvalidClientMessageID
 	}

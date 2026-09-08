@@ -12,7 +12,7 @@ test('dashboard connects, opens a safe chat, sends, disconnects and reconnects',
  const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.goto(url);
  await expect(page.getByRole('heading',{name:'我的 Rooms'})).toBeVisible();
- await expect(page.locator('#version')).toHaveText('本机客户端 v1.0.5');
+ await expect(page.locator('#version')).toHaveText('本机客户端 v1.0.7');
  await page.getByRole('button',{name:'连接',exact:true}).click();
  await expect(page.locator('.status')).toHaveText('已连接',{timeout:10000});
  await expect(page.locator('.room h3')).toHaveText('demo-project');
@@ -20,7 +20,7 @@ test('dashboard connects, opens a safe chat, sends, disconnects and reconnects',
  await expect(page.locator('.details-text')).toContainText('项目名称：demo-project');
  await expect(page.locator('.details-text')).toContainText('项目路径：/workspace/demo-project');
  const popupPromise=page.waitForEvent('popup');await page.getByRole('link',{name:'打开对话 ↗'}).click();const chat=await popupPromise;
- await expect(chat.locator('#client-version')).toHaveText('本机客户端 v1.0.5');
+ await expect(chat.locator('#client-version')).toHaveText('本机客户端 v1.0.7');
  await expect(chat.locator('.answer-text h2')).toHaveText('已准备好');
  await expect(chat.locator('.answer-text table')).toBeVisible();
  await expect(chat.locator('.answer-text img')).toHaveCount(0);
@@ -95,6 +95,29 @@ test('visitor searches read-only history and asker uses an independent area',asy
  async function join(name,port){await page.locator('#address').fill('127.0.0.1:'+port);await page.locator('#session').fill('1'.repeat(32)+'.'+'2'.repeat(64));await page.locator('#name').fill(name);await page.locator('#join').click();const entry=page.locator('.room').filter({hasText:'127.0.0.1:'+port});await entry.getByRole('link',{name:'打开对话 ↗'}).waitFor();const opened=page.waitForEvent('popup');await entry.getByRole('link',{name:'打开对话 ↗'}).click();return opened;}
  const visitor=await join('visitor',7460);await expect(visitor.locator('#role-label')).toContainText('参观者');await expect(visitor.locator('#composer')).toBeHidden();await expect(visitor.locator('#questions-panel')).toBeHidden();await visitor.locator('#history-query').fill('下一步');await visitor.locator('#history-search').getByRole('button',{name:'搜索',exact:true}).click();await expect(visitor.locator('#search-results')).toContainText('一起看看项目的下一步');
  expect(await visitor.evaluate(async()=>{const r=await fetch('submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'a'.repeat(32),text:'run work'})});return r.status})).toBe(403);
+ await visitor.locator('#task-view').click();await expect(visitor.locator('#tasks-panel')).toBeVisible();expect(await visitor.evaluate(async()=>{const r=await fetch('tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'convert',sourceSeq:1,title:'forged',requestId:'a'.repeat(32)})});return r.status})).toBe(403);await expect(visitor.locator('.convert-task:visible')).toHaveCount(0);
  const asker=await join('asker',7461);await expect(asker.locator('#role-label')).toContainText('询问者');await expect(asker.locator('#composer')).toBeHidden();await asker.locator('#question-view').click();const before=await asker.locator('.user-message').count();await asker.locator('#ask-text').fill('独立问题：解释事务');await asker.locator('#ask-send').click();await expect(asker.locator('#questions-list')).toContainText('只读回答：独立问题：解释事务');await expect(asker.locator('.user-message')).toHaveCount(before);
  const member=await join('observer',7462);await member.locator('#question-view').click();await expect(member.locator('#questions-list')).toContainText('独立问题：解释事务');await expect(member.locator('#ask-form')).toBeHidden();await member.locator('#question-member').selectOption('1001');await expect(member.locator('#questions-list')).toContainText('暂无问答记录');await member.locator('#question-member').selectOption('1002');await expect(member.locator('#questions-list')).toContainText('解释事务');await expect(member.locator('#answers')).toBeHidden();await member.locator('#main-view').click();await expect(member.locator('#questions-panel')).toBeHidden();await expect(member.locator('#answers')).toBeVisible();
+});
+
+test('project tasks convert without replay, complete, reopen, continue and persist',async({page})=>{
+ await page.goto(url);await page.locator('#address').fill('127.0.0.1:7470');await page.locator('#session').fill('3'.repeat(32)+'.'+'4'.repeat(64));await page.locator('#name').fill('tasks');await page.locator('#join').click();
+ const entry=page.locator('.room').filter({hasText:'127.0.0.1:7470'});await entry.getByRole('link',{name:'打开对话 ↗'}).waitFor();const popup=page.waitForEvent('popup');await entry.getByRole('link',{name:'打开对话 ↗'}).click();const chat=await popup;
+ const errors=[];chat.on('pageerror',e=>errors.push(e.message));
+ await expect(chat.locator('.user-message .message-time')).toHaveText(/\d{4}\/\d{2}\/\d{2}.*\d{2}:\d{2}:\d{2}/);
+ await expect(chat.locator('.model-message .message-time')).toHaveText(/\d{4}\/\d{2}\/\d{2}/);
+ const initial=await chat.locator('.user-message').count();
+ await chat.locator('.user-message .convert-task').click();await chat.locator('#task-title').fill('登录优化');await chat.locator('#task-acceptance').fill('登录正常，相关检查通过');await chat.locator('#create-task').getByRole('button',{name:'创建任务',exact:true}).click();
+ await expect(chat.locator('#task-heading')).toHaveText('T-1 · 登录优化');await expect(chat.locator('#task-state')).toHaveText('待验收');await expect(chat.locator('#task-runs')).toContainText('实现完成，请验收。');await expect(chat.locator('.user-message')).toHaveCount(initial);await expect(chat.locator('#answers')).toBeHidden();
+ await chat.getByRole('button',{name:'标记任务完成',exact:true}).click();await expect(chat.locator('#task-state')).toHaveText('已完成');await expect(chat.locator('#task-send')).toBeDisabled();
+ await chat.reload();await chat.locator('#task-view').click();await chat.locator('.task-list-item').click();await expect(chat.locator('#task-state')).toHaveText('已完成');
+ await chat.getByRole('button',{name:'重新打开任务',exact:true}).click();await expect(chat.locator('#task-state')).toHaveText('待验收');
+ await chat.locator('#task-text').fill('补充登录测试');await chat.waitForResponse(r=>r.url().endsWith('/draft')&&r.request().method()==='POST');
+ await chat.reload();await chat.locator('#task-view').click();await chat.locator('.task-list-item').click();await expect(chat.locator('#task-text')).toHaveValue('补充登录测试');
+ await chat.locator('#main-view').click();await expect(chat.locator('#answers')).toBeVisible();await expect(chat.locator('#message')).toHaveValue('');await chat.locator('#task-view').click();await expect(chat.locator('#task-text')).toHaveValue('补充登录测试');
+ await chat.locator('#task-send').click();await expect(chat.locator('#task-text')).toHaveValue('');await expect(chat.locator('#task-runs article')).toHaveCount(2);await expect(chat.locator('#task-runs')).toContainText('补充登录测试');
+ await chat.getByRole('button',{name:'标记任务完成',exact:true}).click();await expect(chat.locator('#task-state')).toHaveText('已完成');
+ await chat.locator('#main-view').click();await expect(chat.locator('.user-message')).toHaveCount(initial+1);await chat.locator('.user-message .convert-task').last().click();await chat.locator('#create-task').getByRole('button',{name:'创建任务',exact:true}).click();await expect(chat.locator('.task-list-item')).toHaveCount(1);await expect(chat.locator('#task-state')).toHaveText('已完成');await expect(chat.locator('#task-runs article')).toHaveCount(2);
+ await chat.setViewportSize({width:390,height:844});await chat.screenshot({path:'dist/project-tasks-mobile.png',fullPage:true});expect(await chat.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+ expect(errors).toEqual([]);
 });

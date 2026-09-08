@@ -44,3 +44,38 @@ func TestSharedRunnerReusesHostSessionAndDoesNotResendHistory(t *testing.T) {
 		t.Fatal("retried generation", calls)
 	}
 }
+
+func TestQuestionTimestampsAndLegacyMigration(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	s, err := Open(dir, func(context.Context, room.Actor, room.ClientMessageID, string) (room.QuestionAnswer, error) {
+		return room.QuestionAnswer{Session: "thread", Text: "answer"}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.Ask(ctx, room.Member{UID: 1, Name: "asker"}, strings.Repeat("a", 32), "question")
+	if err != nil || a.CreatedAt == "" || a.CompletedAt == "" {
+		t.Fatal(a, err)
+	}
+	b, err := s.Ask(ctx, room.Member{UID: 1, Name: "asker"}, strings.Repeat("a", 32), "question")
+	if err != nil || b.CreatedAt != a.CreatedAt || b.CompletedAt != a.CompletedAt {
+		t.Fatal(b, err)
+	}
+	// Emulate the pre-timestamp schema with existing completed data.
+	if _, err = s.db.Exec("ALTER TABLE questions DROP COLUMN created_at; ALTER TABLE questions DROP COLUMN completed_at;"); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	entries, err := s.List(ctx, 1, false, 0)
+	if err != nil || len(entries) != 1 || entries[0].CreatedAt != "" || entries[0].Answer != "answer" {
+		t.Fatal(entries, err)
+	}
+}

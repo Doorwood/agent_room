@@ -126,6 +126,22 @@ and `~/.local/bin/agent_room-update` wrappers, and remove only
 user configuration directory to preserve host state and member credentials.
 The marked PATH block can remain if you use `~/.local/bin` for other tools.
 
+## 1.0.7 更新
+
+- 消息可转为项目任务，保留来源，不重复触发模型；同一工作消息和回答归到同一任务。
+- 任务状态与执行同步：待处理、排队、处理中、待验收、异常；协作成员手动标记完成，可重新打开并追加工作。
+- 任务详情展示验收标准、执行记录与变更记录；任务和草稿可在刷新、重连后恢复。
+- 主聊天和询问者问答显示完整日期与时分秒；参观者与询问者只读查看项目任务。
+
+任务仍共享项目会话、工作目录和队列，查看任务不会切换模型工作。此版本将 Host 数据库迁移到 schema 5；升级前备份状态目录，迁移后旧版 Host 不能直接打开。Host、Dashboard 和客户端均需更新并重启；更新命令不会自动停止运行中的任务。
+
+```sh
+npm install -g menmu-agent-room@1.0.7 --registry=https://registry.npmjs.org/
+agent_room --version
+```
+
+持久化安装用户执行 `agent_room-update`。
+
 ## 1.0.6 更新
 
 - 已发送附件支持预览和下载；刷新后恢复图片预览。
