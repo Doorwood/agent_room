@@ -10,6 +10,23 @@ Create one project session on a Linux host. Participants join from macOS or Linu
 
 ## Install
 
+For a persistent user installation without sudo, run the standalone
+[`scripts/setup.sh`](https://github.com/Doorwood/agent_room/blob/main/scripts/setup.sh)
+from a checkout or extracted binary bundle (Node.js 20+ and npm required):
+
+```sh
+sh scripts/setup.sh
+export PATH="$HOME/.local/bin:$PATH"
+agent_room-update --check
+agent_room-update
+```
+
+Setup configures Bash/Zsh startup files so new terminals and project sessions
+can reuse `agent_room`. The updater checks the public npm registry and installs
+the latest version when invoked; it does not schedule background updates.
+Restart running clients after upgrading. Session data and Codex are preserved.
+
+
 With Node.js 20+ and npm, install the platform-bundled CLI:
 
 ```sh

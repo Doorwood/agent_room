@@ -2,7 +2,48 @@
 
 一个 Linux host 创建项目 session；Mac/Linux 用户通过 IP + session_id 申请，host 批准后即可共同提问、安排工作。参与者无需 SSH、系统账号或本机 Codex。
 
-## 安装
+## 一次安装，所有新终端和 session 可用
+
+需要 macOS/Linux、Node.js 20+ 和 npm。直接下载独立脚本安装：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Doorwood/agent_room/main/scripts/setup.sh -o agent-room-setup.sh
+sh agent-room-setup.sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+也可以在源码目录或解压后的安装包内执行：
+
+```sh
+sh scripts/setup.sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+脚本从公共 npm 仓库安装最新版到 `~/.local/share/agent_room/npm`，并将
+`agent_room`、`agent_room-update` 放到 `~/.local/bin`。无需 sudo 或 npm 登录。
+它自动配置 Bash/Zsh 启动文件中的 PATH，重复安装不会重复追加配置；新终端直接可用。
+其他 shell 请自行将 `~/.local/bin` 加入 PATH。已有全局安装可以保留；请用
+`command -v agent_room` 确认使用的是 `~/.local/bin/agent_room`。
+
+每个新 session 直接执行对应的连接命令，无需重新安装：
+
+```sh
+agent_room join HOST_IP SESSION_ID --name 你的昵称 --answers
+```
+
+检查和自动升级：
+
+```sh
+agent_room-update --check   # 仅显示当前版本与 npm 最新版本
+agent_room-update           # 检查并升级；已是最新版时跳过安装
+```
+
+更新脚本在调用时检查，不创建后台任务或定时任务。网络错误会返回失败；不会主动降级。
+更新完成后重启本机客户端并重新打开页面；运行中的 host 需要在合适时间重启才能使用新版。
+安装和升级保留已有 session、成员凭证与 Codex 配置，不安装或升级 Codex。
+`setup.sh` 是独立脚本，可以单独分发给用户后用 `sh setup.sh` 执行。
+
+## 其他安装方式
 
 有 Node.js 20+ 时可直接安装 npm 包（命令名仍是 `agent_room`）：
 

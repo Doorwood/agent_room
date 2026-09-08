@@ -4,6 +4,23 @@ A Linux host creates a shared project session. Members on macOS or Linux request
 
 ## Install with npm
 
+For a persistent user installation without sudo, run the standalone
+[`scripts/setup.sh`](https://github.com/Doorwood/agent_room/blob/main/scripts/setup.sh)
+from a checkout or extracted binary bundle (Node.js 20+ and npm required):
+
+```sh
+sh scripts/setup.sh
+export PATH="$HOME/.local/bin:$PATH"
+agent_room-update --check
+agent_room-update
+```
+
+Setup configures Bash/Zsh startup files so new terminals and project sessions
+can reuse `agent_room`. The updater checks the public npm registry and installs
+the latest version when invoked; it does not schedule background updates.
+Restart running clients after upgrading. Session data and Codex are preserved.
+
+
 Requires Node.js 20+ and npm:
 
 ```sh
@@ -13,7 +30,7 @@ agent_room help
 
 This archive includes macOS/Linux x64/arm64 native binaries. It requires no Go compiler, install scripts, or additional download during installation. The launcher selects the platform and checks its SHA-256 before running. `--ignore-scripts` installations also work.
 
-The npm package name is `menmu-agent-room`; the installed command is `agent_room`. For offline installation, use `npm install -g ./menmu-agent-room-0.1.1.tgz`. To install without administrator access, add `--prefix "$HOME/.local"` and put `$HOME/.local/bin` on PATH.
+The npm package name is `menmu-agent-room`; the installed command is `agent_room`. For offline installation, use `npm install -g ./menmu-agent-room-0.1.3.tgz`. To install without administrator access, add `--prefix "$HOME/.local"` and put `$HOME/.local/bin` on PATH.
 
 ## Host (Linux)
 
@@ -60,7 +77,7 @@ agent_room answers HOST_IP SESSION_ID --name alice
 
 Startup prints `Browser URL: http://127.0.0.1:<local-port>/<random-access-id>/`. This address is generated on each member's own computer; it cannot be assembled from the host IP and session ID. Keep the client running. Add `--no-open` to print the URL without launching a browser.
 
-The browser supports sending tasks, shared member history, member filters, progress grouped by task, and final answers with collapsible progress. The original terminal remains available.
+The browser supports sending tasks, shared member history, member filters, progress grouped by task, and final answers with collapsible progress. Press Enter to send a message or Alt+Enter to insert a newline. The original terminal remains available.
 
 ## Update or uninstall
 

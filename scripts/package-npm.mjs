@@ -15,7 +15,8 @@ const manifest=JSON.parse(readFileSync(path.join(root,'npm/package.json'),'utf8'
 const output=path.join(root,'dist/npm');mkdirSync(output,{recursive:true});
 const stage=mkdtempSync(path.join(output,'stage-'));
 try {
-mkdirSync(path.join(stage,'bin'));mkdirSync(path.join(stage,'native'));
+mkdirSync(path.join(stage,'bin'));mkdirSync(path.join(stage,'native'));mkdirSync(path.join(stage,'scripts'));
+copyFileSync(path.join(root,'scripts/setup.sh'),path.join(stage,'scripts/setup.sh'));
 writeFileSync(path.join(stage,'package.json'),JSON.stringify(manifest,null,2)+'\n');
 copyFileSync(path.join(root,'npm/README.md'),path.join(stage,'README.md'));
 copyFileSync(path.join(root,'LICENSE'),path.join(stage,'LICENSE'));

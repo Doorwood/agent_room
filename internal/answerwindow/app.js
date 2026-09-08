@@ -35,7 +35,16 @@ form.addEventListener('submit', async event => {
   }
 });
 input.addEventListener('keydown', event => {
-  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) {event.preventDefault(); form.requestSubmit();}
+  if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229) return;
+  event.preventDefault();
+  if (event.altKey) {
+    const length = input.value.length - (input.selectionEnd - input.selectionStart) + 1;
+    if (input.maxLength >= 0 && length > input.maxLength) return;
+    input.setRangeText('\n', input.selectionStart, input.selectionEnd, 'end');
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+  } else {
+    form.requestSubmit();
+  }
 });
 let selectedUser = null;
 let lastState = null;

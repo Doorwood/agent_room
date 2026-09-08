@@ -1,12 +1,12 @@
 {
   "name": "menmu-agent-room",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "Shared Codex project sessions with host-approved members, terminal and browser clients",
   "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/Doorwood/agent_room.git" },
   "bin": { "agent_room": "bin/agent_room.cjs" },
-  "files": ["bin/agent_room.cjs", "native/", "README.md", "LICENSE"],
+  "files": ["bin/agent_room.cjs", "native/", "scripts/setup.sh", "README.md", "LICENSE"],
   "engines": { "node": ">=20" },
   "os": ["darwin", "linux"],
   "cpu": ["x64", "arm64"]
