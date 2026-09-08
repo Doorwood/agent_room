@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"agent_romm/internal/buildinfo"
 	"agent_romm/internal/client"
 	"agent_romm/internal/room"
 )
@@ -25,6 +26,12 @@ var script []byte
 
 //go:embed group.mjs
 var grouping []byte
+
+//go:embed markdown.mjs
+var markdown []byte
+
+//go:embed vendor/marked.mjs
+var marked []byte
 
 //go:embed style.css
 var style []byte
@@ -47,6 +54,7 @@ type Answer struct {
 	Time       string    `json:"time"`
 }
 type Window struct {
+	connected    bool
 	host         string
 	session      string
 	viewer       string
@@ -101,6 +109,17 @@ func (w *Window) Room(id string) {
 	w.answers = nil
 	w.bytes = 0
 	w.dropped = false
+	w.revision++
+}
+func (w *Window) Connection(connected bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.connected = connected
+	if connected {
+		w.status = "已连接"
+	} else {
+		w.status = "与 host 的连接中断 · 正在重连"
+	}
 	w.revision++
 }
 func (w *Window) Status(status string) {
@@ -180,6 +199,12 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 	case w.path + "group.mjs":
 		out.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		_, _ = out.Write(grouping)
+	case w.path + "markdown.mjs":
+		out.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = out.Write(markdown)
+	case w.path + "vendor/marked.mjs":
+		out.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = out.Write(marked)
 	case w.path + "app.js":
 		out.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		_, _ = out.Write(script)
@@ -189,16 +214,18 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 	case w.path + "answers":
 		w.mu.Lock()
 		state := struct {
-			Revision uint64        `json:"revision"`
-			Answers  []Answer      `json:"answers"`
-			Dropped  bool          `json:"dropped"`
-			Status   string        `json:"status"`
-			Room     string        `json:"room"`
-			Host     string        `json:"host"`
-			Session  string        `json:"session"`
-			Viewer   string        `json:"viewer"`
-			Members  []room.Member `json:"members"`
-		}{w.revision, append([]Answer(nil), w.answers...), w.dropped, w.status, w.room, w.host, w.session, w.viewer, nil}
+			Revision      uint64        `json:"revision"`
+			Answers       []Answer      `json:"answers"`
+			Dropped       bool          `json:"dropped"`
+			Status        string        `json:"status"`
+			Room          string        `json:"room"`
+			Host          string        `json:"host"`
+			Session       string        `json:"session"`
+			Viewer        string        `json:"viewer"`
+			Members       []room.Member `json:"members"`
+			ClientVersion string        `json:"clientVersion"`
+			Connected     bool          `json:"connected"`
+		}{w.revision, append([]Answer(nil), w.answers...), w.dropped, w.status, w.room, w.host, w.session, w.viewer, nil, buildinfo.Version, w.connected}
 		for uid, name := range w.names {
 			state.Members = append(state.Members, room.Member{UID: uid, Name: name})
 		}

@@ -1,4 +1,5 @@
 import {groupMessages} from './group.mjs';
+import {renderMarkdown} from './markdown.mjs';
 const container = document.getElementById('answers');
 const statusNode = document.getElementById('status');
 let revision = '';
@@ -8,6 +9,7 @@ const input = document.getElementById('message');
 const sendButton = document.getElementById('send');
 const sendStatus = document.getElementById('send-status');
 let sending = false;
+let available = false;
 let attempt = null;
 let restored = false;
 const draftKey = 'agent-room-draft:' + location.pathname;
@@ -18,7 +20,7 @@ input.addEventListener('input', saveDraft);
 form.addEventListener('submit', async event => {
   event.preventDefault();
   const text = input.value.trim();
-  if (!text || sending || !room) return;
+  if (!text || sending || !room || !available || lastState?.connected === false) return;
   if (!attempt || attempt.text !== text) attempt = {id:crypto.randomUUID().replaceAll('-', ''), text};
   saveDraft();
   sending = true; input.disabled = true; sendButton.disabled = true;
@@ -31,7 +33,7 @@ form.addEventListener('submit', async event => {
   } catch (error) {
     sendStatus.textContent = error.name === 'TimeoutError' || error.name === 'TypeError' ? '未收到确认，可能已提交；再次发送会安全重试。' : error.message;
   } finally {
-    sending = false; input.disabled = false; sendButton.disabled = !room; input.focus();
+    sending = false; input.disabled = false; sendButton.disabled = !room || !available || lastState?.connected === false; input.focus();
   }
 });
 input.addEventListener('keydown', event => {
@@ -123,7 +125,7 @@ function updateCard(article, answer) {
   article.className = answer.role === 'user' ? 'user-message' : 'model-message task-message';
   r.label.textContent = (answer.author || '成员') + (answer.kind === 'note' ? ' · 笔记' : answer.kind === 'steer' ? ' · 补充要求' : answer.role === 'assistant' ? (answer.working ? ' · 处理中' : answer.final ? ' · 回答' : ' · 任务状态') : '');
   article.classList.toggle('is-working', Boolean(answer.working));
-  r.body.textContent = answer.text;
+  if (answer.role === 'assistant') renderMarkdown(r.body,answer.text); else r.body.textContent = answer.text;
   r.acknowledgement.hidden = answer.role !== 'user' || !answer.ack;
   r.acknowledgement.textContent = '模型助手 · 自动状态：' + (answer.ack || '已接收');
   const progress = answer.progress || [];
@@ -140,9 +142,10 @@ function updateCard(article, answer) {
 async function poll() {
   try {
     const response = await fetch('answers?revision=' + encodeURIComponent(revision), {cache: 'no-store'});
-    if (response.status === 204) return;
+    if (response.status === 204) {available = true; return;}
     if (!response.ok) throw new Error('unavailable');
     const state = await response.json();
+    available = true;
     if (!restored) {
       restored = true;
       try {const saved = JSON.parse(sessionStorage.getItem(draftKey)); if (saved) {input.value = saved.text || ''; attempt = saved.attempt || null;}} catch { /* Ignore unavailable storage. */ }
@@ -153,7 +156,7 @@ async function poll() {
       selectedUser = null;
       memberSignature = '';
       room = state.room;
-      sendButton.disabled = sending || !room;
+      sendButton.disabled = sending || !room || state.connected === false;
     }
     const nearEnd = window.innerHeight + window.scrollY >= document.body.scrollHeight - 160;
     const answers = state.answers || [];
@@ -176,12 +179,15 @@ async function poll() {
     applyFilter();
     revision = state.revision;
     statusNode.textContent = state.status;
+    sendButton.disabled = sending || !room || state.connected === false;
+    document.getElementById('client-version').textContent = '本机客户端 ' + (state.clientVersion ? 'v' + state.clientVersion : '版本未知');
 
     document.getElementById('notice').hidden = !state.dropped;
     document.body.classList.toggle('has-answers', answers.length > 0);
     if (nearEnd && answers.length) window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
   } catch {
-    statusNode.textContent = '回答窗口已断开 · 请检查启动窗口';
+    available = false; sendButton.disabled = true;
+    statusNode.textContent = '无法连接本机客户端 · 请重新运行 answers/join --answers 并打开新的 Browser URL';
     revision = '';
   } finally {
     setTimeout(poll, 1000);

@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>我的 Rooms · agent_room</title><link rel="stylesheet" href="style.css"><script src="app.js" type="module"></script></head>
+<body><header><a class="brand" href="./"><span class="mark">a</span>agent_room</a><span id="version">本地 Dashboard</span></header><main>
+<div class="heading"><div><p class="eyebrow">YOUR LOCAL WORKSPACE</p><h1>我的 Rooms</h1><p class="intro">回到熟悉的项目，继续一起推进工作。</p></div><button id="refresh" class="secondary">刷新列表</button></div>
+<div id="service-status" role="status"></div><div id="warnings" role="status"></div>
+<section class="join-panel" aria-labelledby="join-title"><div><h2 id="join-title">加入一个 room</h2><p>粘贴 host 提供的地址与完整 session_id。首次连接仍需 host 批准。</p></div><form id="join-form"><label>Host 地址<input id="address" name="address" placeholder="例如 192.168.1.10:7443" required autocomplete="off"></label><label class="session-field">Session ID<input id="session" name="session" placeholder="粘贴完整 session_id" required autocomplete="off"></label><label>你的昵称<input id="name" name="name" placeholder="协作时显示的名字" required maxlength="64" autocomplete="nickname"></label><button id="join" type="submit">保存并连接</button></form><p id="join-status" role="status"></p></section>
+<div class="list-heading"><h2>本机保存的 Rooms <span id="count">0</span></h2><label class="search">查找<input id="search" type="search" placeholder="项目、地址或昵称"></label></div>
+<p class="hint">列表包含本机项目和曾使用的成员身份；保存过身份不代表已经获批。下方连接状态仅属于此 Dashboard。</p>
+<section id="rooms" aria-label="Room 列表"></section><div id="empty" hidden><h2>还没有 room</h2><p>在上方加入一个 room，或在本机启动项目 host 后刷新。</p></div>
+<footer>断开只关闭本 Dashboard 的连接，不停止 host、不取消任务，也不影响其他终端连接。<br>关闭网页后连接会保持；退出 Dashboard 进程后，其连接会全部关闭。下次启动仍保留 room 列表。</footer>
+</main></body></html>

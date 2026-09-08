@@ -798,7 +798,7 @@ func TestProductionBinaryBoundary(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, command := range []string{"init", "serve", "connect", "bridge", "repair-thread"} {
+	for _, command := range []string{"dashboard", "host", "join", "answers", "doctor", "version"} {
 		if !bytes.Contains(out, []byte(command)) {
 			t.Fatal(command)
 		}

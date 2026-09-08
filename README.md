@@ -10,22 +10,31 @@ Create one project session on a Linux host. Participants join from macOS or Linu
 
 ## Install
 
-For a persistent user installation without sudo, run the standalone
-[`scripts/setup.sh`](https://github.com/Doorwood/agent_room/blob/main/scripts/setup.sh)
-from a checkout or extracted binary bundle (Node.js 20+ and npm required):
+Recommended user setup (Node.js 20+, macOS/Linux, no sudo):
 
 ```sh
-sh scripts/setup.sh
+npm exec --yes --registry=https://registry.npmjs.org/ --package=menmu-agent-room@latest -- agent_room-setup
 export PATH="$HOME/.local/bin:$PATH"
-agent_room-update --check
-agent_room-update
+agent_room dashboard
 ```
 
-Setup configures Bash/Zsh startup files so new terminals and project sessions
-can reuse `agent_room`. The updater checks the public npm registry and installs
-the latest version when invoked; it does not schedule background updates.
-Restart running clients after upgrading. Session data and Codex are preserved.
+The setup command ships inside the npm package; no GitHub script download is
+required. In a source checkout or extracted bundle, use `sh scripts/setup.sh`.
+Setup configures Bash/Zsh and preserves existing global installations. Use
+`agent_room doctor` to identify the command and version currently in use.
 
+```sh
+agent_room --version
+agent_room-update --check
+agent_room-update
+agent_room-update --rollback
+```
+
+Updates validate a staged package before switching the managed entry point.
+Failed updates keep the old version. Running clients need to be restarted;
+updates do not stop hosts or cancel tasks. No background updates are scheduled.
+
+Alternative: global npm installation (use the same npm prefix for updates):
 
 With Node.js 20+ and npm, install the platform-bundled CLI:
 
@@ -95,7 +104,7 @@ Revocation disconnects that member's current clients and rejects further connect
 
 Ctrl+C stops the host cleanly. Run it in tmux to keep it alive after disconnecting. Start it with the same project and state to reuse the session and membership approvals. Client credentials and replay positions persist locally.
 
-Default state is isolated by canonical Git project under `~/.local/share/agent_room/hosts`, outside the project. Run management commands from the same project or pass `--state`. The host reuses its saved port; a new host tries 7443 and then an available port. An explicit `--listen` disables automatic fallback. For an explicit session directory and port:
+Default state is isolated by canonical Git project under `~/.local/share/agent_room/projects`, outside the project. Run management commands from the same project or pass `--state`. The host reuses its saved port; a new host tries 7443 and then an available port. An explicit `--listen` disables automatic fallback. For an explicit session directory and port:
 
 ```sh
 agent_room host /path/to/other-project --state /absolute/other-state --listen 0.0.0.0:7444
@@ -117,6 +126,9 @@ sh scripts/package.sh
 npm run test:npm
 node --test internal/answerwindow/group.test.mjs
 npm run pack:npm
+npm ci
+npx playwright install chromium
+npm run test:browser
 ```
 
 Packaging writes `dist/agent-room-bundle.tar.gz`. No publication occurs automatically. Legacy `agent_romm` SSH commands remain supported; see [legacy core notes](docs/legacy-core-mvp.md). The Go module and source entry point retain their original `agent_romm` spelling.
@@ -136,3 +148,32 @@ member filters, and progress grouped by task. Terminal-only usage is unchanged.
 Released under the [MIT License](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md)
 for development checks and contribution guidelines. Codex and third-party
 dependencies retain their own licenses and terms.
+
+## Local room dashboard
+
+Run `agent_room dashboard` once and keep its terminal running. The local page
+lists saved member identities and local host projects. Add a host address,
+complete session ID and nickname, then connect; first-time members still need
+host approval. Open the conversation from the room card. Disconnect only
+closes that dashboard's connection, preserving membership and submitted tasks.
+Closing the browser tab keeps connections alive; stopping the dashboard process
+closes its connections. Rooms remain available next time, without auto-connecting.
+Connections opened in other terminals are not controlled by this dashboard.
+
+For a host using a custom state directory from an older version, use
+`agent_room dashboard --host-state /absolute/state`. The dashboard does not
+start or stop hosts, create host projects, or grant membership approvals.
+Use `--no-open` to print the local URL without opening a browser.
+
+The chat page shows its local client version, renders Markdown safely, and
+supports code-block copying. Press Enter to send or Alt+Enter for a newline.
+
+## Removing a managed installation
+
+Managed and global npm installations are separate. `npm uninstall -g
+menmu-agent-room` removes the global package only. To remove the managed
+installation, stop its local clients, remove its recognized `~/.local/bin/agent_room`
+and `~/.local/bin/agent_room-update` wrappers, and remove only
+`~/.local/share/agent_room/npm`. Keep the surrounding agent_room directory and
+user configuration directory to preserve host state and member credentials.
+The marked PATH block can remain if you use `~/.local/bin` for other tools.

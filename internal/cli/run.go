@@ -54,7 +54,7 @@ func ProductionDependencies() Dependencies {
 	}}
 }
 
-const help = "agent_romm: trusted local room engine\ncommands: host, join, answers, requests, approve, deny, revoke, session\nlegacy: init, serve, connect, bridge, repair-thread\nUse <command> --help for options.\n"
+const help = "agent_room: shared project sessions\ncommands: dashboard, host, join, answers, session, requests, approve, deny, revoke, version, doctor\nStart: agent_room dashboard\nJoin: agent_room join HOST_IP COMPLETE_SESSION_ID --name YOUR_NAME --answers\nHost: agent_room host .\nUse <command> --help for examples and options.\nLegacy commands: agent_room help legacy\n"
 
 // Run returns 2 for invalid arguments, 3 for unsupported platforms, and 1 for
 // operational failures. It never resolves a Codex executable for help/parsing.
@@ -62,6 +62,19 @@ func Run(ctx context.Context, args []string, out, diagnostics io.Writer, d Depen
 	if len(args) == 0 || (len(args) == 1 && (args[0] == "help" || args[0] == "--help" || args[0] == "-h")) {
 		fmt.Fprint(out, help)
 		return 0
+	}
+	switch args[0] {
+	case "--version", "version":
+		return runVersion(args[1:], out, diagnostics)
+	case "doctor":
+		return runDoctor(ctx, args[1:], out, diagnostics)
+	case "dashboard":
+		return runDashboard(ctx, args[1:], out, diagnostics, d)
+	case "help":
+		if len(args) == 2 && args[1] == "legacy" {
+			fmt.Fprintln(out, "Legacy: init, serve, connect, bridge, repair-thread")
+			return 0
+		}
 	}
 	if isNetworkCommand(args[0]) {
 		return runNetwork(ctx, args, out, diagnostics, d)

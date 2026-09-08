@@ -4,22 +4,31 @@ A Linux host creates a shared project session. Members on macOS or Linux request
 
 ## Install with npm
 
-For a persistent user installation without sudo, run the standalone
-[`scripts/setup.sh`](https://github.com/Doorwood/agent_room/blob/main/scripts/setup.sh)
-from a checkout or extracted binary bundle (Node.js 20+ and npm required):
+Recommended user setup (Node.js 20+, macOS/Linux, no sudo):
 
 ```sh
-sh scripts/setup.sh
+npm exec --yes --registry=https://registry.npmjs.org/ --package=menmu-agent-room@latest -- agent_room-setup
 export PATH="$HOME/.local/bin:$PATH"
-agent_room-update --check
-agent_room-update
+agent_room dashboard
 ```
 
-Setup configures Bash/Zsh startup files so new terminals and project sessions
-can reuse `agent_room`. The updater checks the public npm registry and installs
-the latest version when invoked; it does not schedule background updates.
-Restart running clients after upgrading. Session data and Codex are preserved.
+The setup command ships inside the npm package; no GitHub script download is
+required. In a source checkout or extracted bundle, use `sh scripts/setup.sh`.
+Setup configures Bash/Zsh and preserves existing global installations. Use
+`agent_room doctor` to identify the command and version currently in use.
 
+```sh
+agent_room --version
+agent_room-update --check
+agent_room-update
+agent_room-update --rollback
+```
+
+Updates validate a staged package before switching the managed entry point.
+Failed updates keep the old version. Running clients need to be restarted;
+updates do not stop hosts or cancel tasks. No background updates are scheduled.
+
+Alternative: global npm installation (use the same npm prefix for updates):
 
 Requires Node.js 20+ and npm:
 
@@ -30,7 +39,7 @@ agent_room help
 
 This archive includes macOS/Linux x64/arm64 native binaries. It requires no Go compiler, install scripts, or additional download during installation. The launcher selects the platform and checks its SHA-256 before running. `--ignore-scripts` installations also work.
 
-The npm package name is `menmu-agent-room`; the installed command is `agent_room`. For offline installation, use `npm install -g ./menmu-agent-room-0.1.3.tgz`. To install without administrator access, add `--prefix "$HOME/.local"` and put `$HOME/.local/bin` on PATH.
+The npm package name is `menmu-agent-room`; the installed command is `agent_room`. For offline installation, use `npm install -g ./menmu-agent-room-1.0.4.tgz`. To install without administrator access, add `--prefix "$HOME/.local"` and put `$HOME/.local/bin` on PATH.
 
 ## Host (Linux)
 
@@ -87,3 +96,32 @@ npm uninstall -g menmu-agent-room
 ```
 
 Uninstalling the CLI keeps host sessions and client credentials. Native hosts currently running are not replaced until they restart.
+
+## Local room dashboard
+
+Run `agent_room dashboard` once and keep its terminal running. The local page
+lists saved member identities and local host projects. Add a host address,
+complete session ID and nickname, then connect; first-time members still need
+host approval. Open the conversation from the room card. Disconnect only
+closes that dashboard's connection, preserving membership and submitted tasks.
+Closing the browser tab keeps connections alive; stopping the dashboard process
+closes its connections. Rooms remain available next time, without auto-connecting.
+Connections opened in other terminals are not controlled by this dashboard.
+
+For a host using a custom state directory from an older version, use
+`agent_room dashboard --host-state /absolute/state`. The dashboard does not
+start or stop hosts, create host projects, or grant membership approvals.
+Use `--no-open` to print the local URL without opening a browser.
+
+The chat page shows its local client version, renders Markdown safely, and
+supports code-block copying. Press Enter to send or Alt+Enter for a newline.
+
+## Removing a managed installation
+
+Managed and global npm installations are separate. `npm uninstall -g
+menmu-agent-room` removes the global package only. To remove the managed
+installation, stop its local clients, remove its recognized `~/.local/bin/agent_room`
+and `~/.local/bin/agent_room-update` wrappers, and remove only
+`~/.local/share/agent_room/npm`. Keep the surrounding agent_room directory and
+user configuration directory to preserve host state and member credentials.
+The marked PATH block can remain if you use `~/.local/bin` for other tools.

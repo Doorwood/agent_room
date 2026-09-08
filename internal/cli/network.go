@@ -19,6 +19,7 @@ import (
 	"agent_romm/internal/client"
 	"agent_romm/internal/config"
 	"agent_romm/internal/daemon"
+	"agent_romm/internal/dashboard"
 	"agent_romm/internal/network"
 	"agent_romm/internal/store"
 )
@@ -35,6 +36,19 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 	var err error
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	fs.SetOutput(diag)
+	fs.Usage = func() {
+		fmt.Fprintf(diag, "agent_room %s\n", args[0])
+		switch args[0] {
+		case "join", "answers":
+			fmt.Fprintf(diag, "Usage: agent_room %s HOST_IP SESSION_ID --name YOUR_NAME\nExample: agent_room %s 192.168.1.10:7443 COMPLETE_SESSION_ID --name alice\n", args[0], args[0])
+			fmt.Fprintln(diag, "Copy the complete session_id from the host. First connection requires host approval. For room management: agent_room dashboard")
+		case "host":
+			fmt.Fprintln(diag, "Usage: agent_room host PROJECT\nExample: agent_room host .")
+		default:
+			fmt.Fprintf(diag, "Usage: agent_room %s [--state DIR]\n", args[0])
+		}
+		fs.PrintDefaults()
+	}
 	address := "0.0.0.0:" + network.DefaultPort
 	name := ""
 	advertise := ""
@@ -225,6 +239,11 @@ func runHost(ctx context.Context, project, state, address, advertise string, aut
 			remote.Close()
 			return nil, err
 		}
+		if configDir, e := d.UserConfigDir(); e == nil {
+			if e = (dashboard.Catalog{Config: configDir}).RememberHost(state); e != nil {
+				fmt.Fprintln(diag, "Dashboard room index could not be saved:", e)
+			}
+		}
 		fmt.Fprintf(out, "Host ready\nproject: %s\nlisten: %s\nsession_id: %s\nJoin: agent_room join %s %s --name YOUR_NAME\nReview: agent_room requests --state %s\nBrowser on your computer: agent_room answers %s %s --name YOUR_NAME\nThe local client prints the Browser URL after starting.\n", root, remote.Address(), remote.SessionID(), advertise, remote.SessionID(), state, advertise, remote.SessionID())
 		return remote, nil
 	})
@@ -270,11 +289,7 @@ func runJoinView(ctx context.Context, host, session, name string, view, readOnly
 		deps.Submissions = window.EnableChat()
 		deps.OnRoom = window.Room
 		deps.OnConnection = func(connected bool) {
-			if connected {
-				window.Status("已连接 · 等待完整回答")
-			} else {
-				window.Status("连接中断 · 正在重连")
-			}
+			window.Connection(connected)
 		}
 		if !noOpen {
 			if err := openAnswerWindow(ctx, window.URL()); err != nil {

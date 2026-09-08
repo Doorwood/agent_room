@@ -13,3 +13,7 @@
 *.db-shm
 *.db-wal
 /agent_romm
+
+/node_modules/
+/test-results/
+/playwright-report/

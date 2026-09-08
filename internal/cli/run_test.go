@@ -17,7 +17,7 @@ func TestRootHelpListsOnlySupportedCommands(t *testing.T) {
 	if code := Run(context.Background(), []string{"help"}, &out, &diagnostics, ProductionDependencies()); code != 0 {
 		t.Fatalf("%d: %s", code, diagnostics.String())
 	}
-	for _, name := range []string{"init", "serve", "connect", "bridge", "repair-thread"} {
+	for _, name := range []string{"dashboard", "host", "join", "answers", "doctor", "version"} {
 		if !strings.Contains(out.String(), name) {
 			t.Fatal(name)
 		}

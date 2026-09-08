@@ -4,12 +4,12 @@
 
 ## 一次安装，所有新终端和 session 可用
 
-需要 macOS/Linux、Node.js 20+ 和 npm。直接下载独立脚本安装：
+需要 macOS/Linux、Node.js 20+ 和 npm。推荐直接从官方 npm 包启动安装脚本，无需 sudo 或 GitHub 下载：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Doorwood/agent_room/main/scripts/setup.sh -o agent-room-setup.sh
-sh agent-room-setup.sh
+npm exec --yes --registry=https://registry.npmjs.org/ --package=menmu-agent-room@latest -- agent_room-setup
 export PATH="$HOME/.local/bin:$PATH"
+agent_room dashboard
 ```
 
 也可以在源码目录或解压后的安装包内执行：
@@ -113,7 +113,7 @@ export PATH="$HOME/.local/share/agent_room/codex/node_modules/.bin:$PATH"
 
 ## 重启与多个 session
 
-状态默认按 Git 项目隔离在 `~/.local/share/agent_room/hosts` 下。管理命令从同一项目目录执行，或明确传入 `--state`。host 优先复用保存的端口；新会话先尝试 7443，再自动选择空闲端口；显式 `--listen` 不会自动换端口。Ctrl+C 正常停止；在同一项目重新执行 `agent_room host .` 会恢复相同 session 和成员。长期运行可放在 tmux 中。客户端再次执行原来的 join 命令，不必重新审批。
+状态默认按 Git 项目隔离在 `~/.local/share/agent_room/projects` 下。管理命令从同一项目目录执行，或明确传入 `--state`。host 优先复用保存的端口；新会话先尝试 7443，再自动选择空闲端口；显式 `--listen` 不会自动换端口。Ctrl+C 正常停止；在同一项目重新执行 `agent_room host .` 会恢复相同 session 和成员。长期运行可放在 tmux 中。客户端再次执行原来的 join 命令，不必重新审批。
 
 ## 可选浏览器窗口
 
@@ -137,3 +137,19 @@ agent_room approve REQUEST_ID --state /absolute/new-state
 使用你自己的 Linux host、项目路径和 host 输出的 session_id。不要将实际部署地址、会话信息、本机凭证或日志提交到公开仓库。
 
 长期运行时可使用 tmux；请先在普通终端确认 Codex 已登录、网络可用，再使用相同运行环境启动 host。只有可信协作者应被批准加入，所有成员提交的工作都使用 host 执行用户的权限。
+
+## 用本地 Dashboard 管理 room（1.0.4）
+
+```sh
+agent_room dashboard
+```
+
+浏览器中可查看本机项目、曾使用的成员身份，搜索 room，填写 host/session_id/昵称保存新 room，并直接连接、断开和打开对话。保存身份不等于已获批准；首次连接仍需 host 在终端批准。
+
+默认扫描本机项目状态目录和成员凭证；旧版使用自定义 state 的 host 可通过 `agent_room dashboard --host-state /绝对路径/state` 加入索引。新版本 host 启动会记录其 state 位置。页面中的连接状态只属于当前 Dashboard，不能停止其他终端启动的客户端。
+
+断开不删除凭证、不停止 host、不取消已经提交的任务。关闭网页后连接继续；退出 Dashboard 终端后其连接全部关闭，下次启动仍保留 room，但不自动重连。Dashboard 本身不创建或启动 host，host 继续使用 `agent_room host 项目路径`。
+
+通过 `agent_room --version` 和 `agent_room doctor` 查看本机版本和来源；host 环境检查使用 `agent_room doctor --host`。页面显示运行中客户端版本，磁盘上安装新版本不会改变旧进程；重启本机 dashboard/answers/join 后打开新页面。只改客户端 UI 时无需重启 host。
+
+更新失败保留旧版本；`agent_room-update --rollback` 可以显式切回上一个托管版本。全局 npm 安装仍使用同一 prefix 更新，两种安装可能并存；以 `command -v agent_room` 和 doctor 的输出为准。
