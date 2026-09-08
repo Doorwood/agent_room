@@ -1,7 +1,7 @@
 # agent_room
 
-Source repository: [Doorwood/agent_romm](https://github.com/Doorwood/agent_romm).
-The CLI is named `agent_room`; the repository retains the original `agent_romm` name.
+Source repository: [Doorwood/agent_room](https://github.com/Doorwood/agent_room).
+The CLI and repository are named `agent_room`.
 
 Early-stage software for trusted collaborators. Approved members can request
 work with the host execution owner's full authority. See [SECURITY.md](SECURITY.md).
