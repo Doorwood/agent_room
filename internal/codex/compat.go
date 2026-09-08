@@ -6,9 +6,9 @@ import (
 )
 
 const (
-	SupportedCodexVersion = "0.151.0-alpha.7.2"
+	SupportedCodexVersion = "0.153.4"
 	SupportedCLIOutput    = "codex-cli " + SupportedCodexVersion
-	SupportedSchemaSHA256 = "31ae67beb2c94cc9509f6a71968600062dc8c6d7fe45437ed3a9129838f4d2d9"
+	SupportedSchemaSHA256 = "e8284c5cb8157554a3dd1e035aadbd4325aea501af56887e9c2e12eb1b9b9448"
 )
 
 var (

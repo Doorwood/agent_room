@@ -22,10 +22,17 @@ On the Linux execution host, optionally install the dedicated compatible Codex r
 
 ```sh
 sh scripts/install.sh --with-codex
+export PATH="$HOME/.local/share/agent_room/codex/node_modules/.bin:$PATH"
 ~/.local/share/agent_room/codex/node_modules/.bin/codex login
 ```
 
-The host automatically finds this runtime. It also recognizes the earlier `~/.local/share/agent-romm-runtime` install, then falls back to `codex` on PATH. The required CLI version is `0.151.0-alpha.7.2`. Existing Codex logins are reused.
+Every host startup resolves `codex` from the current `PATH` and checks its version.
+Missing Codex causes an explicit startup error; private runtime directories are
+never selected automatically. If Codex is already on PATH, no separate install
+is needed. The currently validated CLI version is `0.153.4`; other versions are
+rejected until protocol compatibility is reviewed. Model and reasoning effort
+are not hard-coded by agent_room: the selected Codex loads its own configuration
+and existing login from the current environment (including `CODEX_HOME`).
 
 ## Start, join, approve
 

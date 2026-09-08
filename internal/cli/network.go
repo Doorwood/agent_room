@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 
@@ -143,6 +144,9 @@ func runHost(ctx context.Context, project, state, address, advertise string, out
 		return err
 	}
 	d.CodexExecutable = installedCodex()
+	if d.CodexExecutable == "" {
+		return errors.New("Codex executable not found on PATH; install Codex and make `codex --version` work in this environment before starting the host")
+	}
 	root, err := filepath.Abs(project)
 	if err != nil {
 		return err
@@ -225,17 +229,17 @@ func codexPath(d Dependencies) string {
 	return "codex"
 }
 func installedCodex() string {
-	home, err := os.UserHomeDir()
+	path, err := exec.LookPath("codex")
+	if err != nil && !errors.Is(err, exec.ErrDot) {
+		return ""
+	}
+	// Honor relative entries explicitly present in PATH, but freeze the
+	// executable before the child switches to the project's working directory.
+	path, err = filepath.Abs(path)
 	if err != nil {
-		return "codex"
+		return ""
 	}
-	for _, rel := range []string{".local/share/agent_room/codex/node_modules/.bin/codex", ".local/share/agent-romm-runtime/node_modules/.bin/codex"} {
-		p := filepath.Join(home, rel)
-		if info, err := os.Stat(p); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
-			return p
-		}
-	}
-	return "codex"
+	return path
 }
 
 func advertisedAddress(bound string) string {

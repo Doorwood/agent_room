@@ -1,0 +1,4 @@
+codex-cli 0.153.4
+codex_app_server_protocol.schemas.json sha256 e8284c5cb8157554a3dd1e035aadbd4325aea501af56887e9c2e12eb1b9b9448
+codex_app_server_protocol.v2.schemas.json sha256 d3eace08be5dca386bfd1f1e8df650058b4113f1e10870a284d775d75517576a
+generated 2026-09-08 on Linux x86_64 using app-server generate-json-schema

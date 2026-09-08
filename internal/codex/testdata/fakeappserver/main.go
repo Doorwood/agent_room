@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	cliOutput = "codex-cli 0.151.0-alpha.7.2"
-	version   = "0.151.0-alpha.7.2"
+	cliOutput = "codex-cli 0.153.4"
+	version   = "0.153.4"
 	maxLine   = 8 << 20
 )
 

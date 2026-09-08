@@ -16,10 +16,11 @@ sh scripts/install.sh
 
 ```sh
 sh scripts/install.sh --with-codex
+export PATH="$HOME/.local/share/agent_room/codex/node_modules/.bin:$PATH"
 ~/.local/share/agent_room/codex/node_modules/.bin/codex login
 ```
 
-这会单独安装固定版本 `0.151.0-alpha.7.2`，需要 Node.js/npm；host 自动找到专用版本，已有登录可直接复用。Mac 客户端只装 agent_room 即可。
+这会单独安装已验证版本 `0.153.4`，需要 Node.js/npm。每次 host 启动都从当前 PATH 查找 Codex；找不到就报错，不会自动选择隐藏目录中的版本。已有 Codex 时无需单独安装，先确认同一终端中 `codex --version` 可用且版本兼容。模型和推理档位沿用当前环境 Codex 的配置（包括 CODEX_HOME），agent_room 不写死模型。Mac 客户端只装 agent_room 即可。
 
 ## 三步开始
 

@@ -226,7 +226,7 @@ func TestSupervisorPostCheckpointFailureStopsAndPersistsStopped(t *testing.T) {
 		config fakeAppConfig
 		want   error
 	}{
-		{name: "user-agent mismatch", config: fakeAppConfig{userAgent: "agent_romm/0.151.0-alpha.7.20", stderr: "stderr-secret"}, want: ErrIncompatibleUserAgent},
+		{name: "user-agent mismatch", config: fakeAppConfig{userAgent: "agent_romm/0.153.40", stderr: "stderr-secret"}, want: ErrIncompatibleUserAgent},
 		{name: "RPC rejection", config: fakeAppConfig{rpcError: "rpc-body-secret", stderr: "stderr-secret"}, want: ErrRPCRequestFailed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -530,14 +530,14 @@ func TestFakeAppServerExecutable(t *testing.T) {
 	if err := server.Start(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := io.WriteString(stdin, `{"id":1,"method":"initialize","params":{"clientInfo":{"name":"agent_romm","version":"0.151.0-alpha.7.2"}}}`+"\n"); err != nil {
+	if _, err := io.WriteString(stdin, `{"id":1,"method":"initialize","params":{"clientInfo":{"name":"agent_romm","version":"0.153.4"}}}`+"\n"); err != nil {
 		t.Fatal(err)
 	}
 	line, err := bufio.NewReader(stdout).ReadBytes('\n')
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(line, []byte(`"userAgent":"agent_romm/0.151.0-alpha.7.2"`)) {
+	if !bytes.Contains(line, []byte(`"userAgent":"agent_romm/0.153.4"`)) {
 		t.Fatalf("initialize response=%s", line)
 	}
 	_ = stdin.Close()
@@ -552,7 +552,7 @@ func TestFakeAppServerExecutable(t *testing.T) {
 		t.Fatalf("recorded=%s", recorded)
 	}
 
-	initializeLine := `{"id":1,"method":"initialize","params":{"clientInfo":{"name":"agent_romm","version":"0.151.0-alpha.7.2"}}}` + "\n"
+	initializeLine := `{"id":1,"method":"initialize","params":{"clientInfo":{"name":"agent_romm","version":"0.153.4"}}}` + "\n"
 	t.Run("EOF", func(t *testing.T) {
 		output := runFakeAppServer(t, executable, []string{"--mode", "eof"}, initializeLine)
 		if len(output) != 0 {
@@ -565,7 +565,7 @@ func TestFakeAppServerExecutable(t *testing.T) {
 		if elapsed := time.Since(started); elapsed < 25*time.Millisecond {
 			t.Fatalf("response was not delayed: %v", elapsed)
 		}
-		if !bytes.Contains(output, []byte(`"userAgent":"agent_romm/0.151.0-alpha.7.2"`)) {
+		if !bytes.Contains(output, []byte(`"userAgent":"agent_romm/0.153.4"`)) {
 			t.Fatalf("output=%s", output)
 		}
 	})
@@ -578,7 +578,7 @@ func TestFakeAppServerExecutable(t *testing.T) {
 	t.Run("reverse request", func(t *testing.T) {
 		output := runFakeAppServer(t, executable, []string{"--mode", "reverse-request"}, initializeLine)
 		if !bytes.Contains(output, []byte(`"method":"item/tool/requestUserInput"`)) ||
-			!bytes.Contains(output, []byte(`"userAgent":"agent_romm/0.151.0-alpha.7.2"`)) {
+			!bytes.Contains(output, []byte(`"userAgent":"agent_romm/0.153.4"`)) {
 			t.Fatalf("output=%s", output)
 		}
 	})

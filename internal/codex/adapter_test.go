@@ -264,7 +264,7 @@ func TestAdapterRequestGoldens(t *testing.T) {
 		rpc, peer := newRPCPeer(t, func(request map[string]json.RawMessage) json.RawMessage {
 			switch methodOf(request) {
 			case "initialize":
-				return json.RawMessage(`{"codexHome":"/tmp/codex","platformFamily":"unix","platformOs":"linux","userAgent":"agent_romm/0.151.0-alpha.7.2 pinned"}`)
+				return json.RawMessage(`{"codexHome":"/tmp/codex","platformFamily":"unix","platformOs":"linux","userAgent":"agent_romm/0.153.4 pinned"}`)
 			case "account/read":
 				return json.RawMessage(`{"account":{"type":"apiKey"},"requiresOpenaiAuth":true}`)
 			default:
@@ -279,7 +279,7 @@ func TestAdapterRequestGoldens(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.UserAgent != "agent_romm/0.151.0-alpha.7.2 pinned" {
+		if result.UserAgent != "agent_romm/0.153.4 pinned" {
 			t.Fatalf("userAgent=%q", result.UserAgent)
 		}
 		assertGolden(t, "initialize.json", peer.nextRequest(t))
@@ -365,11 +365,11 @@ func TestAdapterRejectsInvalidConfigurationAndCompatibility(t *testing.T) {
 	if _, err := NewAdapter(rpc, AdapterConfig{ProjectRoot: "relative"}); !errors.Is(err, ErrProjectRootNotAbsolute) {
 		t.Fatalf("err=%v", err)
 	}
-	valid := "agent_romm/0.151.0-alpha.7.2 extra"
+	valid := "agent_romm/0.153.4 extra"
 	cases := []string{
-		"", "codex/0.151.0-alpha.7.2", "xagent_romm/0.151.0-alpha.7.2",
-		"agent_romm/0.151.0-alpha.7.20", "agent_romm/0.151.0-alpha.7.2x",
-		"agent_romm/0.151.0-alpha.7.2/extra",
+		"", "codex/0.153.4", "xagent_romm/0.153.4",
+		"agent_romm/0.153.40", "agent_romm/0.153.4x",
+		"agent_romm/0.153.4/extra",
 	}
 	if err := ValidateUserAgent(SupportedCLIOutput, valid); err != nil {
 		t.Fatalf("valid user agent rejected: %v", err)
@@ -398,7 +398,7 @@ func TestInitializeAuthenticationRules(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rpc, _ := newRPCPeer(t, func(request map[string]json.RawMessage) json.RawMessage {
 				if methodOf(request) == "initialize" {
-					return json.RawMessage(`{"codexHome":"/tmp/codex","platformFamily":"unix","platformOs":"linux","userAgent":"agent_romm/0.151.0-alpha.7.2"}`)
+					return json.RawMessage(`{"codexHome":"/tmp/codex","platformFamily":"unix","platformOs":"linux","userAgent":"agent_romm/0.153.4"}`)
 				}
 				return json.RawMessage(`{"account":` + tc.account + `,"requiresOpenaiAuth":` + map[bool]string{true: "true", false: "false"}[tc.requires] + `}`)
 			})
@@ -924,7 +924,7 @@ func TestInitializeDrainsFilteredNotificationsWithBoundedQueues(t *testing.T) {
 					t.Errorf("write filtered notification: %v", err)
 				}
 			}
-			return json.RawMessage(`{"codexHome":"/tmp/codex","platformFamily":"unix","platformOs":"linux","userAgent":"agent_romm/0.151.0-alpha.7.2"}`)
+			return json.RawMessage(`{"codexHome":"/tmp/codex","platformFamily":"unix","platformOs":"linux","userAgent":"agent_romm/0.153.4"}`)
 		case "account/read":
 			return json.RawMessage(`{"account":{"type":"apiKey"},"requiresOpenaiAuth":true}`)
 		default:

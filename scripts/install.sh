@@ -38,9 +38,11 @@ fi
 if [ "$with_codex" -eq 1 ]; then
   [ "$os" = linux ] || { echo 'Codex host runtime requires Linux.' >&2; exit 1; }
   command -v npm >/dev/null 2>&1 || { echo 'Install Node.js/npm, then rerun with --with-codex.' >&2; exit 1; }
-  (cd "$tmp" && npm install --prefix "$HOME/.local/share/agent_room/codex" --registry=https://registry.npmjs.org --no-audit --no-fund '@openai/codex@0.151.0-alpha.7.2')
+  (cd "$tmp" && npm install --prefix "$HOME/.local/share/agent_room/codex" --registry=https://registry.npmjs.org --no-audit --no-fund '@openai/codex@0.153.4')
   echo 'Host runtime installed. If needed, log in with:'
   echo '  ~/.local/share/agent_room/codex/node_modules/.bin/codex login'
+  echo 'To use this runtime, add it to the host environment before starting:'
+  echo '  export PATH="$HOME/.local/share/agent_room/codex/node_modules/.bin:$PATH"'
 fi
 "$prefix/agent_room" help
 printf '\nInstalled: %s/agent_room\n' "$prefix"
