@@ -1,0 +1,1 @@
+{"id":1,"method":"thread/resume","params":{"threadId":"thread-1","cwd":"/srv/project","approvalPolicy":"never","sandbox":"danger-full-access"}}

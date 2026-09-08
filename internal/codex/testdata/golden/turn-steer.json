@@ -1,0 +1,1 @@
+{"id":1,"method":"turn/steer","params":{"threadId":"thread-1","input":[{"type":"text","text":"inspect the race"}],"expectedTurnId":"turn-1"}}

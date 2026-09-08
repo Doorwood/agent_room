@@ -1,0 +1,1 @@
+{"id":1,"method":"thread/start","params":{"cwd":"/srv/project","approvalPolicy":"never","sandbox":"danger-full-access"}}

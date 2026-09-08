@@ -1,0 +1,1 @@
+{"id":1,"method":"thread/read","params":{"threadId":"thread-1","includeTurns":true}}
