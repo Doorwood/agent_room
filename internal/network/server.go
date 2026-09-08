@@ -23,21 +23,23 @@ type Sessions interface {
 	ServeMember(context.Context, net.Conn, room.Member)
 }
 type Server struct {
-	store     *store.Store
-	room      room.RoomID
-	session   string
-	listener  net.Listener
-	admin     net.Listener
-	http      *http.Server
-	ctx       context.Context
-	cancel    context.CancelFunc
-	mu        sync.Mutex
-	conns     map[net.Conn]room.UID
-	wg        sync.WaitGroup
-	once      sync.Once
-	errors    chan error
-	adminPath string
-	adminInfo os.FileInfo
+	privateDir string
+	uploadMu   sync.Mutex
+	store      *store.Store
+	room       room.RoomID
+	session    string
+	listener   net.Listener
+	admin      net.Listener
+	http       *http.Server
+	ctx        context.Context
+	cancel     context.CancelFunc
+	mu         sync.Mutex
+	conns      map[net.Conn]room.UID
+	wg         sync.WaitGroup
+	once       sync.Once
+	errors     chan error
+	adminPath  string
+	adminInfo  os.FileInfo
 }
 
 func Start(ctx context.Context, address, privateDir string, rid room.RoomID, st *store.Store, sessions Sessions) (*Server, error) {
@@ -53,7 +55,7 @@ func Start(ctx context.Context, address, privateDir string, rid room.RoomID, st 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Server{store: st, room: rid, session: string(rid) + "." + pin, listener: l, ctx: ctx, cancel: cancel, conns: map[net.Conn]room.UID{}, errors: make(chan error, 2), adminPath: filepath.Join(privateDir, "network-admin.sock")}
+	s := &Server{privateDir: privateDir, store: st, room: rid, session: string(rid) + "." + pin, listener: l, ctx: ctx, cancel: cancel, conns: map[net.Conn]room.UID{}, errors: make(chan error, 2), adminPath: filepath.Join(privateDir, "network-admin.sock")}
 	// Called only while the room's exclusive owner lock is held. A stale socket
 	// from an earlier crashed process may be removed; regular files are refused.
 	if info, e := os.Lstat(s.adminPath); e == nil {
@@ -148,6 +150,10 @@ func (s *Server) handle(c net.Conn, sessions Sessions) {
 	if err := readJSON(c, &h); err != nil {
 		return
 	}
+	if h.Operation != "" && h.Operation != "upload" {
+		writeJSON(c, Reply{State: "unsupported-operation"})
+		return
+	}
 	if h.Session != s.session {
 		_ = writeJSON(c, Reply{State: "invalid-session"})
 		return
@@ -178,6 +184,10 @@ func (s *Server) handle(c net.Conn, sessions Sessions) {
 		return
 	}
 	_ = c.SetDeadline(time.Time{})
+	if h.Operation == "upload" {
+		s.receiveUpload(c, h.Token)
+		return
+	}
 	sessions.ServeMember(s.ctx, c, member)
 }
 func (s *Server) manage(w http.ResponseWriter, r *http.Request) {

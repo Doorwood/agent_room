@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -123,6 +124,7 @@ func welcome(c net.Conn, r *protocol.Reader, roomID string, high uint64) (protoc
 	return h, err
 }
 func TestDisconnectResendsIdenticalMutationAfterReplay(t *testing.T) {
+	var projectUpdates atomic.Int32
 	input, iw := io.Pipe()
 	defer iw.Close()
 	var out, diag bytes.Buffer
@@ -141,7 +143,12 @@ func TestDisconnectResendsIdenticalMutationAfterReplay(t *testing.T) {
 	})
 	done := make(chan error, 1)
 	go func() {
-		done <- New(Deps{Launcher: launcher, Cursors: store}).Run(context.Background(), "host", input, &out, &diag)
+		done <- New(Deps{Launcher: launcher, Cursors: store, OnProject: func(project string) {
+			projectUpdates.Add(1)
+			if project != "/project" {
+				t.Errorf("unexpected project: %q", project)
+			}
+		}}).Run(context.Background(), "host", input, &out, &diag)
 	}()
 	first := <-servers
 	first.SetDeadline(time.Now().Add(3 * time.Second))
@@ -202,6 +209,9 @@ func TestDisconnectResendsIdenticalMutationAfterReplay(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("quit blocked")
+	}
+	if projectUpdates.Load() != 2 {
+		t.Fatalf("project updates = %d, want initial welcome and reconnect", projectUpdates.Load())
 	}
 	if strings.Count(out.String(), "once") != 1 {
 		t.Fatal(out.String())

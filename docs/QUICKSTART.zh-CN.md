@@ -153,3 +153,18 @@ agent_room dashboard
 通过 `agent_room --version` 和 `agent_room doctor` 查看本机版本和来源；host 环境检查使用 `agent_room doctor --host`。页面显示运行中客户端版本，磁盘上安装新版本不会改变旧进程；重启本机 dashboard/answers/join 后打开新页面。只改客户端 UI 时无需重启 host。
 
 更新失败保留旧版本；`agent_room-update --rollback` 可以显式切回上一个托管版本。全局 npm 安装仍使用同一 prefix 更新，两种安装可能并存；以 `command -v agent_room` 和 doctor 的输出为准。
+
+## 1.0.5 更新
+
+- Room 项目名称同步、缓存和搜索；支持删除本机 Room 记录，再次添加复用成员身份。
+- 聊天历史向上翻页加载，回复链接在新标签页打开。
+- 选择、拖拽文件或粘贴图片上传后发送给模型；单文件最大 20 MiB。附件功能需要 host 和客户端均升级。
+- “停止模型”中断当前任务并保持连接；已排队的任务继续执行。
+
+```sh
+agent_room-update
+agent_room --version
+agent_room dashboard
+```
+
+更新后重新启动客户端；使用附件功能前也需要重启升级后的 host。

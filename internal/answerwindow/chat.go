@@ -73,8 +73,9 @@ func (w *Window) post(out http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ID   string `json:"id"`
-		Text string `json:"text"`
+		ExpectedTurn string `json:"expectedTurn"`
+		ID           string `json:"id"`
+		Text         string `json:"text"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(out, r.Body, 64<<10))
 	decoder.DisallowUnknownFields()
@@ -85,8 +86,19 @@ func (w *Window) post(out http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	submission := client.Submission{Context: ctx, ID: body.ID, Text: body.Text, Result: make(chan error, 1)}
+	if r.URL.Path == w.path+"cancel" {
+		submission.Method = "cancel"
+		submission.ExpectedTurnID = body.ExpectedTurn
+		w.mu.Lock()
+		active, connected := w.activeTurn, w.connected
+		w.mu.Unlock()
+		if !connected || active == "" || active != body.ExpectedTurn {
+			http.Error(out, "当前任务已变化或连接中断，请等待状态同步后重试。", 409)
+			return
+		}
+	}
 	if err := submission.Validate(); err != nil {
-		http.Error(out, "消息为空或过长", http.StatusBadRequest)
+		http.Error(out, "请求无效或消息过长", http.StatusBadRequest)
 		return
 	}
 	w.mu.Lock()
@@ -105,7 +117,7 @@ func (w *Window) post(out http.ResponseWriter, r *http.Request) {
 	select {
 	case err := <-submission.Result:
 		if err != nil {
-			http.Error(out, "host 未接受消息，请检查连接或审批状态。", http.StatusConflict)
+			http.Error(out, "host 未接受请求；任务可能已结束，请刷新状态后重试。", http.StatusConflict)
 			return
 		}
 		out.Header().Set("Content-Type", "application/json")

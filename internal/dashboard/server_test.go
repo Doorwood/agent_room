@@ -205,3 +205,94 @@ func TestRealAdmissionDisconnectKeepsHostAndIdentity(t *testing.T) {
 	dash.connect(r)
 	await(t, func() bool { rows, _ := dash.list(); return rows[0].Status == "pending" })
 }
+
+func TestJoinedProjectPersistsAcrossDashboardRestartAndIdentities(t *testing.T) {
+	c := catalogFixture(t)
+	for _, name := range []string{"alice", "bob"} {
+		if _, err := c.Add("127.0.0.1:7443", sessionFixture(), name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, _ := c.List()
+	if rows[0].ProjectName != "" {
+		t.Fatal("invented project name")
+	}
+	if err := c.RememberProject("127.0.0.1:7443", sessionFixture(), "/work/项目-room"); err != nil {
+		t.Fatal(err)
+	}
+	restarted := Catalog{Home: c.Home, Config: c.Config}
+	rows, _ = restarted.List()
+	for _, r := range rows {
+		if r.ProjectName != "项目-room" || r.Project != "/work/项目-room" {
+			t.Fatalf("missing cached project: %+v", r)
+		}
+	}
+	if _, err := c.Add("127.0.0.1:7444", sessionFixture(), "carol"); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = c.List()
+	for _, r := range rows {
+		if r.Name == "carol" && r.Project != "" {
+			t.Fatal("project leaked across hosts")
+		}
+	}
+	if err := c.RememberProject("127.0.0.1:7443", sessionFixture(), "/work/renamed"); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = restarted.List()
+	for _, r := range rows {
+		if r.Name != "carol" && r.ProjectName != "renamed" {
+			t.Fatal("project did not refresh")
+		}
+	}
+}
+
+func TestRemoveDisconnectsAndStaysRemovedUntilExplicitAdd(t *testing.T) {
+	c := catalogFixture(t)
+	r, err := c.Add("127.0.0.1:7443", sessionFixture(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, _ := c.Credentials()
+	stopped := make(chan struct{})
+	s, err := Start(context.Background(), c, func(ctx context.Context, r Room, update Update) error { <-ctx.Done(); close(stopped); return ctx.Err() })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err = s.connect(r); err != nil {
+		t.Fatal(err)
+	}
+	out := request(t, s, "remove", map[string]string{"id": r.ID}, "http://"+s.listener.Addr().String())
+	if out.Code != 200 {
+		t.Fatal(out.Body.String())
+	}
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("connection not canceled")
+	}
+	rows, _ := s.list()
+	if len(rows) != 0 {
+		t.Fatal("deleted active room reappeared")
+	}
+	restart := Catalog{Home: c.Home, Config: c.Config}
+	rows, _ = restart.List()
+	if len(rows) != 0 {
+		t.Fatal("deleted room reappeared after restart")
+	}
+	if err = s.connect(r); err == nil {
+		t.Fatal("stale connection resurrected room")
+	}
+	if _, err = c.Add(r.Address, r.Session, r.Name); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = restart.List()
+	if len(rows) != 1 {
+		t.Fatal("explicit add did not restore room")
+	}
+	credentials, _ := c.Credentials()
+	if credentials[0].Token != original[0].Token {
+		t.Fatal("lost approved identity")
+	}
+}

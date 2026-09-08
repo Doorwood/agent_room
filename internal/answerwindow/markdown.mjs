@@ -6,7 +6,12 @@ export function renderMarkdown(container, source) {
  function inline(parent,tokens) {
   for(const token of tokens || []) {
    if(['strong','em','del'].includes(token.type)){const node=make(token.type);inline(node,token.tokens);parent.append(node);}
-   else if(token.type==='codespan')parent.append(make('code',token.text));
+   else if(token.type==='codespan'){
+    const code=make('code',token.text);
+    // A standalone web address remains clickable when the model formats it as inline code.
+    let web=false;try{web=/^https?:\/\/[^\s]+$/i.test(token.text) && ['https:','http:'].includes(new URL(token.text).protocol);}catch{}
+    if(web){const link=make('a');link.href=token.text;link.target='_blank';link.rel='noopener noreferrer';link.append(code);parent.append(link);}else parent.append(code);
+   }
    else if(token.type==='br')parent.append(make('br'));
    else if(token.type==='link'){
     let safe=false;try {safe=['https:','http:','mailto:'].includes(new URL(token.href).protocol);}catch{}

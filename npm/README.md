@@ -125,3 +125,18 @@ and `~/.local/bin/agent_room-update` wrappers, and remove only
 `~/.local/share/agent_room/npm`. Keep the surrounding agent_room directory and
 user configuration directory to preserve host state and member credentials.
 The marked PATH block can remain if you use `~/.local/bin` for other tools.
+
+## 1.0.5 更新
+
+- Room 项目名称同步、缓存和搜索；支持删除本机 Room 记录，再次添加复用成员身份。
+- 聊天历史向上翻页加载，回复链接在新标签页打开。
+- 选择、拖拽文件或粘贴图片上传后发送给模型；单文件最大 20 MiB。附件功能需要 host 和客户端均升级。
+- “停止模型”中断当前任务并保持连接；已排队的任务继续执行。
+
+```sh
+agent_room-update
+agent_room --version
+agent_room dashboard
+```
+
+更新后重新启动客户端；使用附件功能前也需要重启升级后的 host。

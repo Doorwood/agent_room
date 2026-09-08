@@ -28,6 +28,7 @@ type connection struct {
 	done   chan struct{}
 }
 type Server struct {
+	workers   sync.WaitGroup
 	catalog   Catalog
 	connector Connector
 	mu        sync.Mutex
@@ -75,11 +76,15 @@ func (s *Server) Close() error {
 	for _, d := range done {
 		<-d
 	}
+	s.workers.Wait()
 	return err
 }
 func (s *Server) connect(r Room) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.catalog.hidden(r.ID) {
+		return errors.New("room 已删除，请重新添加")
+	}
 	if s.closed {
 		return errors.New("dashboard 已关闭")
 	}
@@ -101,7 +106,9 @@ func (s *Server) connect(r Room) error {
 	r.URL = ""
 	c := &connection{room: r, cancel: cancel, done: make(chan struct{})}
 	s.active[r.ID] = c
+	s.workers.Add(1)
 	go func() {
+		defer s.workers.Done()
 		defer close(c.done)
 		update := func(status, detail, url string) {
 			s.mu.Lock()
@@ -255,6 +262,18 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			err = s.connect(selected)
 		}
+	case "remove":
+		s.mu.Lock()
+		err = s.catalog.Remove(body.ID)
+		if err == nil {
+			if c := s.active[body.ID]; c != nil {
+				if c.cancel != nil {
+					c.cancel()
+				}
+				delete(s.active, body.ID)
+			}
+		}
+		s.mu.Unlock()
 	case "disconnect":
 		s.disconnect(body.ID)
 	default:

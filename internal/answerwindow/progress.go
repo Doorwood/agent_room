@@ -95,6 +95,14 @@ func (w *Window) progress(e room.DurableEvent) error {
 				}
 			}
 		}
+		_, err := w.history.Exec(`UPDATE answers SET body=json_set(body,'$.ack',?,'$.turn',CASE WHEN ? != '' THEN ? ELSE turn END), turn=CASE WHEN ? != '' THEN ? ELSE turn END WHERE role='user' AND ((? != '' AND client_id=?) OR (? != '' AND turn=?))`, state, body.Turn, body.Turn, body.Turn, body.Turn, body.ID, body.ID, body.Turn, body.Turn)
+		if err == nil && body.Turn != "" {
+			_, err = w.history.Exec(`UPDATE answers SET body=json_set(body,'$.taskStatus',?) WHERE turn=?`, state, body.Turn)
+		}
+		if err != nil {
+			w.mu.Unlock()
+			return err
+		}
 		w.revision++
 		w.mu.Unlock()
 		return nil

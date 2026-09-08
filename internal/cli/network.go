@@ -270,6 +270,15 @@ func runJoinView(ctx context.Context, host, session, name string, view, readOnly
 	}
 	deps := d.Client
 	deps.Launcher = launcher
+	onProject := deps.OnProject
+	deps.OnProject = func(project string) {
+		if onProject != nil {
+			onProject(project)
+		}
+		if err := (dashboard.Catalog{Config: cfgRoot}).RememberProject(address, session, project); err != nil {
+			fmt.Fprintln(diag, "Could not save project name for Dashboard:", client.SafeText(err.Error()))
+		}
+	}
 	if !view {
 		fmt.Fprintln(out, "Browser: add --answers to this join command, or run agent_room answers HOST_IP SESSION_ID --name YOUR_NAME in another terminal.")
 	}
@@ -282,12 +291,14 @@ func runJoinView(ctx context.Context, host, session, name string, view, readOnly
 		fmt.Fprintf(out, "\nBrowser URL: %s\nURL format: http://127.0.0.1:<local-port>/<random-access-id>/\nThe port and access ID are generated locally; this is not HOST_IP/session_id.\nKeep this process running; Ctrl+C closes its browser service.\n", window.URL())
 		// Every new browser view replays task ownership independently of the terminal cursor.
 		deps.Cursors = &client.ReplayCursors{}
+		window.EnableUploads(launcher.Upload)
 		window.Metadata(address, session, name)
 		deps.OnAnswer = window.Add
 		deps.OnEvent = window.Event
 		deps.OnMembers = window.Members
 		deps.Submissions = window.EnableChat()
 		deps.OnRoom = window.Room
+		deps.OnActiveTurn = window.ActiveTurn
 		deps.OnConnection = func(connected bool) {
 			window.Connection(connected)
 		}

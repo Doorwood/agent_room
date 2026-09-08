@@ -15,9 +15,10 @@ const DefaultPort = "7443"
 const maxHello = 8192
 
 type Hello struct {
-	Session string `json:"session"`
-	Token   string `json:"token"`
-	Name    string `json:"name"`
+	Operation string `json:"operation,omitempty"`
+	Session   string `json:"session"`
+	Token     string `json:"token"`
+	Name      string `json:"name"`
 }
 type Reply struct {
 	State     string `json:"state"`

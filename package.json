@@ -1,11 +1,11 @@
 {
   "name": "agent-room-workspace",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "scripts": {
     "test:npm": "node --test npm/*.test.cjs",
     "pack:npm": "node scripts/package-npm.mjs",
-    "test:browser": "go build -ldflags \"-X agent_romm/internal/buildinfo.Version=1.0.4\" -o dist/dashboard-ui-fixture ./internal/dashboard/testdata/ui && playwright test"
+    "test:browser": "go build -ldflags \"-X agent_romm/internal/buildinfo.Version=1.0.5\" -o dist/dashboard-ui-fixture ./internal/dashboard/testdata/ui && playwright test"
   },
   "engines": {
     "node": ">=20"

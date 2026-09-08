@@ -19,15 +19,16 @@ import (
 )
 
 type Room struct {
-	ID      string `json:"id"`
-	Address string `json:"address"`
-	Session string `json:"session"`
-	Name    string `json:"name"`
-	Kind    string `json:"kind"`
-	Project string `json:"project,omitempty"`
-	Status  string `json:"status"`
-	Detail  string `json:"detail,omitempty"`
-	URL     string `json:"url,omitempty"`
+	ID          string `json:"id"`
+	Address     string `json:"address"`
+	Session     string `json:"session"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	Project     string `json:"project,omitempty"`
+	ProjectName string `json:"projectName,omitempty"`
+	Status      string `json:"status"`
+	Detail      string `json:"detail,omitempty"`
+	URL         string `json:"url,omitempty"`
 }
 
 func identity(address, session, name string) string {
@@ -188,13 +189,30 @@ func (c Catalog) List() ([]Room, []string) {
 			rooms = append(rooms, host)
 		}
 	}
+	for i := range rooms {
+		if rooms[i].Project == "" {
+			var saved struct{ Project string }
+			if privateJSON(c.projectFile(rooms[i].Address, rooms[i].Session), &saved) == nil {
+				rooms[i].Project = saved.Project
+			}
+		}
+		if rooms[i].Project != "" {
+			rooms[i].ProjectName = projectName(rooms[i].Project)
+		}
+	}
 	sort.Slice(rooms, func(i, j int) bool {
 		if rooms[i].Kind != rooms[j].Kind {
 			return rooms[i].Kind < rooms[j].Kind
 		}
 		return rooms[i].ID < rooms[j].ID
 	})
-	return rooms, warnings
+	visible := rooms[:0]
+	for _, r := range rooms {
+		if !c.hidden(r.ID) {
+			visible = append(visible, r)
+		}
+	}
+	return visible, warnings
 }
 func (c Catalog) Add(address, session, name string) (Room, error) {
 	address, err := network.Address(strings.TrimSpace(address))
@@ -219,5 +237,62 @@ func (c Catalog) Add(address, session, name string) (Room, error) {
 	if err != nil {
 		return Room{}, err
 	}
+	if err := os.Remove(c.removedFile(identity(address, session, name))); err != nil && !os.IsNotExist(err) {
+		return Room{}, err
+	}
 	return Room{ID: identity(address, session, name), Address: address, Session: session, Name: cred.Name, Kind: "joined", Status: "disconnected"}, nil
+}
+
+func projectName(project string) string {
+	return filepath.Base(strings.ReplaceAll(strings.TrimRight(project, "/\\"), "\\", "/"))
+}
+func (c Catalog) projectFile(address, session string) string {
+	return filepath.Join(c.Config, "agent_room", "dashboard", "projects", identity(address, session, "")+".json")
+}
+
+// RememberProject caches metadata received from an authenticated host, shared by room identities.
+func (c Catalog) RememberProject(address, session, project string) error {
+	if strings.TrimSpace(project) == "" || len(project) > 4096 {
+		return errors.New("invalid project metadata")
+	}
+	target := c.projectFile(address, session)
+	if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(target), ".project-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if err := json.NewEncoder(f).Encode(struct {
+		Project string `json:"project"`
+	}{project}); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), target)
+}
+
+func (c Catalog) removedFile(id string) string {
+	return filepath.Join(c.Config, "agent_room", "dashboard", "removed", id+".json")
+}
+func (c Catalog) hidden(id string) bool {
+	var removed bool
+	return privateJSON(c.removedFile(id), &removed) == nil && removed
+}
+
+// Remove hides this local entry, preserving membership credentials and host data.
+func (c Catalog) Remove(id string) error {
+	b, err := hex.DecodeString(id)
+	if err != nil || len(b) != 32 {
+		return errors.New("invalid room ID")
+	}
+	file := c.removedFile(id)
+	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(file, []byte("true"), 0600)
 }

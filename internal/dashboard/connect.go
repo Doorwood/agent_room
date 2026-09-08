@@ -39,12 +39,17 @@ func (c Catalog) Connect(ctx context.Context, r Room, update Update) error {
 		return err
 	}
 	defer window.Close()
+	window.EnableUploads(launcher.Upload)
 	window.Metadata(r.Address, r.Session, r.Name)
 	update("connecting", "正在同步 room", window.URL())
 	reader, writer := io.Pipe()
 	defer writer.Close()
 	defer reader.Close()
-	deps := client.Deps{Launcher: launcher, Cursors: &client.ReplayCursors{}, OnAnswer: window.Add, OnEvent: window.Event, OnMembers: window.Members, Submissions: window.EnableChat(), OnRoom: window.Room, OnConnection: func(connected bool) {
+	deps := client.Deps{Launcher: launcher, Cursors: &client.ReplayCursors{}, OnAnswer: window.Add, OnEvent: window.Event, OnMembers: window.Members, Submissions: window.EnableChat(), OnRoom: window.Room, OnActiveTurn: window.ActiveTurn, OnProject: func(project string) {
+		if err := c.RememberProject(r.Address, r.Session, project); err != nil {
+			update("connecting", "项目名称缓存失败："+client.SafeText(err.Error()), window.URL())
+		}
+	}, OnConnection: func(connected bool) {
 		window.Connection(connected)
 		if connected {
 			update("connected", "", window.URL())

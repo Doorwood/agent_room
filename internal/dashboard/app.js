@@ -8,7 +8,7 @@ async function post(action, body) {
 }
 function render() {
  const query = $('search').value.trim().toLowerCase();
- const filtered = data.filter(r=>[r.project,r.address,r.name,r.session].join(' ').toLowerCase().includes(query));
+ const filtered = data.filter(r=>[r.projectName,r.project,r.address,r.name,r.session].join(' ').toLowerCase().includes(query));
  $('count').textContent = data.length;
  $('rooms').replaceChildren();
  $('empty').hidden = filtered.length>0;
@@ -19,10 +19,10 @@ function render() {
   const kind = document.createElement('span');kind.className='kind';kind.textContent=room.kind==='owned'?'本机项目':'成员身份';
   const status = document.createElement('span');status.className='status '+room.status;status.textContent=labels[room.status] || room.status;
   top.append(kind,status);
-  const title = document.createElement('h3');title.textContent=room.project?.split('/').filter(Boolean).at(-1) || room.address;
+  const title = document.createElement('h3');title.textContent=room.projectName || room.project?.split('/').filter(Boolean).at(-1) || '项目名称待同步';
   const meta = document.createElement('p');meta.className='meta';meta.textContent=room.address+' · '+(room.name || '连接时选择昵称');
   const details = document.createElement('details');const summary = document.createElement('summary');summary.textContent='Room 信息';
-  const text = document.createElement('p');text.className='details-text';text.textContent=(room.project?'项目：'+room.project+'\n':'')+'Session：'+room.session;
+  const text = document.createElement('p');text.className='details-text';text.textContent='项目名称：'+(room.projectName || '连接后自动同步')+'\n'+(room.project?'项目路径：'+room.project+'\n':'')+'Session：'+room.session;
   details.append(summary,text);
   const note = document.createElement('p');note.className='note';note.setAttribute('role','status');note.textContent=room.detail || '';
   const actions = document.createElement('div');actions.className='actions';
@@ -39,6 +39,12 @@ function render() {
   if (room.url) {
    const link=document.createElement('a');link.className='open';link.textContent='打开对话 ↗';link.href=room.url;link.target='_blank';link.rel='noopener noreferrer';actions.append(link);
   }
+  const remove=document.createElement('button');remove.type='button';remove.className='secondary';remove.textContent='删除 Room';
+  remove.addEventListener('click',async()=>{
+   if(!confirm('从本机 Dashboard 删除此 Room？会断开本 Dashboard 的连接，保留成员身份和 host 上的项目、聊天记录。之后可重新添加。'))return;
+   remove.disabled=true;
+   try{await post('remove',{id:room.id});signature='';await refresh();}catch(error){note.textContent=error.message;remove.disabled=false;}
+  });actions.append(remove);
   card.append(top,title,meta,details,note,actions);$('rooms').append(card);
  }
 }

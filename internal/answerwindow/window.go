@@ -3,12 +3,14 @@ package answerwindow
 
 import (
 	"crypto/rand"
+	"database/sql"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -54,6 +56,10 @@ type Answer struct {
 	Time       string    `json:"time"`
 }
 type Window struct {
+	activeTurn   string
+	upload       UploadFunc
+	history      *sql.DB
+	historyDir   string
 	connected    bool
 	host         string
 	session      string
@@ -87,19 +93,38 @@ func Start() (*Window, error) {
 		return nil, err
 	}
 	w := &Window{listener: l, path: "/" + hex.EncodeToString(token[:]) + "/", status: "正在连接", names: make(map[room.UID]string)}
-	w.server = &http.Server{Handler: http.HandlerFunc(w.serve), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, WriteTimeout: 10 * time.Second}
+	if err := w.openHistory(); err != nil {
+		l.Close()
+		if w.history != nil {
+			w.history.Close()
+		}
+		os.RemoveAll(w.historyDir)
+		return nil, err
+	}
+	w.server = &http.Server{Handler: http.HandlerFunc(w.serve), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, ReadTimeout: 70 * time.Second, WriteTimeout: 70 * time.Second}
 	go w.server.Serve(l)
 	return w, nil
 }
-func (w *Window) URL() string  { return "http://" + w.listener.Addr().String() + w.path }
-func (w *Window) Close() error { return w.server.Close() }
+func (w *Window) URL() string { return "http://" + w.listener.Addr().String() + w.path }
+func (w *Window) Close() error {
+	err := w.server.Close()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.history.Close()
+	os.RemoveAll(w.historyDir)
+	return err
+}
 func (w *Window) Room(id string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.room == id {
 		return
 	}
+	w.activeTurn = ""
 	w.room = id
+	if _, err := w.history.Exec("DELETE FROM answers"); err != nil {
+		w.status = "历史缓存重置失败"
+	}
 	w.turnOwners = make(map[string]room.UID)
 	w.turnStates = make(map[string]string)
 	w.turnMessages = make(map[string]string)
@@ -142,18 +167,18 @@ func (w *Window) Add(e room.DurableEvent, text string) error {
 func (w *Window) add(message Answer) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	// Replay duplicates can occur after a transport interruption. Sequence is
-	// checked against retained answers, without conflating different items.
-	for _, a := range w.answers {
-		if a.Seq == message.Seq {
-			return nil
-		}
-	}
 	if message.Role == "user" {
 		uid := message.UID
 		message.Owner = &uid
 	} else if uid, ok := w.turnOwners[message.Turn]; ok {
 		message.Owner = &uid
+	}
+	inserted, err := w.saveAnswer(message)
+	if err != nil {
+		return err
+	}
+	if !inserted {
+		return nil
 	}
 	w.answers = append(w.answers, message)
 	w.bytes += len(message.Text)
@@ -177,7 +202,7 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 		http.Error(out, "invalid origin", http.StatusForbidden)
 		return
 	}
-	if r.Method != http.MethodGet && !(r.Method == http.MethodPost && r.URL.Path == w.path+"submit") {
+	if r.Method != http.MethodGet && !(r.Method == http.MethodPost && (r.URL.Path == w.path+"submit" || r.URL.Path == w.path+"cancel" || r.URL.Path == w.path+"upload")) {
 		out.Header().Set("Allow", "GET")
 		http.Error(out, "read-only", http.StatusMethodNotAllowed)
 		return
@@ -185,9 +210,15 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 	out.Header().Set("Cache-Control", "no-store")
 	out.Header().Set("X-Content-Type-Options", "nosniff")
 	out.Header().Set("Referrer-Policy", "no-referrer")
-	out.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'none'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'")
+	out.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'")
 	switch r.URL.Path {
-	case w.path + "submit":
+	case w.path + "upload":
+		if r.Method != http.MethodPost {
+			http.Error(out, "POST required", 405)
+			return
+		}
+		w.postUpload(out, r)
+	case w.path + "submit", w.path + "cancel":
 		if r.Method != http.MethodPost {
 			http.Error(out, "POST required", 405)
 			return
@@ -211,9 +242,18 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 	case w.path + "style.css":
 		out.Header().Set("Content-Type", "text/css; charset=utf-8")
 		_, _ = out.Write(style)
+	case w.path + "history":
+		w.serveHistory(out, r)
 	case w.path + "answers":
 		w.mu.Lock()
+		page, more, err := w.historyPage(0)
+		if err != nil {
+			w.mu.Unlock()
+			http.Error(out, "cannot read history", 500)
+			return
+		}
 		state := struct {
+			ActiveTurn    string        `json:"activeTurn"`
 			Revision      uint64        `json:"revision"`
 			Answers       []Answer      `json:"answers"`
 			Dropped       bool          `json:"dropped"`
@@ -225,13 +265,15 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 			Members       []room.Member `json:"members"`
 			ClientVersion string        `json:"clientVersion"`
 			Connected     bool          `json:"connected"`
-		}{w.revision, append([]Answer(nil), w.answers...), w.dropped, w.status, w.room, w.host, w.session, w.viewer, nil, buildinfo.Version, w.connected}
+		}{w.activeTurn, w.revision, page, more, w.status, w.room, w.host, w.session, w.viewer, nil, buildinfo.Version, w.connected}
 		for uid, name := range w.names {
 			state.Members = append(state.Members, room.Member{UID: uid, Name: name})
 		}
 		sort.Slice(state.Members, func(i, j int) bool { return state.Members[i].UID < state.Members[j].UID })
 		for i := range state.Answers {
-			state.Answers[i].TaskStatus = w.turnStates[state.Answers[i].Turn]
+			if status := w.turnStates[state.Answers[i].Turn]; status != "" {
+				state.Answers[i].TaskStatus = status
+			}
 			if state.Answers[i].Role == "user" {
 				name := w.names[state.Answers[i].UID]
 				if name == "" {
@@ -249,5 +291,14 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(out).Encode(state)
 	default:
 		http.NotFound(out, r)
+	}
+}
+
+func (w *Window) ActiveTurn(turn string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.activeTurn != turn {
+		w.activeTurn = turn
+		w.revision++
 	}
 }

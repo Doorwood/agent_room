@@ -41,6 +41,8 @@ type Deps struct {
 	OnAnswer     func(room.DurableEvent, string) error
 	OnConnection func(bool)
 	OnRoom       func(string)
+	OnProject    func(string)
+	OnActiveTurn func(string)
 	OnEvent      func(room.DurableEvent) error
 	OnMembers    func([]room.Member)
 	Submissions  <-chan Submission
@@ -426,6 +428,9 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 				if _, err = fmt.Fprintf(out, "Room: %s (%s)\nProject: %s\nExecution owner: %s\nActive turn: %s\n%s\n", SafeText(w.RoomName), SafeText(w.RoomID), SafeText(w.ProjectRoot), SafeText(w.ExecutionOwner), SafeText(w.ActiveTurnID), SafeText(fmt.Sprintf("ALL AGENT ACTIONS RUN WITH %s'S FULL RUNTIME AUTHORITY; TRANSCRIPT ATTRIBUTION IS NOT TAMPER-PROOF.", w.ExecutionOwner))); err != nil {
 					return fatal(err)
 				}
+				if c.deps.OnProject != nil {
+					c.deps.OnProject(w.ProjectRoot)
+				}
 				welcomed = true
 				if c.deps.OnRoom != nil {
 					c.deps.OnRoom(w.RoomID)
@@ -483,6 +488,9 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 					return err
 				}
 				p.snapshot(s)
+				if c.deps.OnActiveTurn != nil {
+					c.deps.OnActiveTurn(p.active)
+				}
 				if p.truncated {
 					fmt.Fprintln(out, "[stream truncated; completed output follows]")
 				}
@@ -536,6 +544,9 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 				}
 				if err = p.durable(d, out); err != nil {
 					return fatal(err)
+				}
+				if c.deps.OnActiveTurn != nil {
+					c.deps.OnActiveTurn(p.active)
 				}
 				if c.deps.OnEvent != nil {
 					if err := c.deps.OnEvent(d); err != nil {

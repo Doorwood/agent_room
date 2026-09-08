@@ -114,7 +114,8 @@ func CredentialFor(dir, address, session, name string) (Credential, error) {
 
 type Launcher struct{ Credential Credential }
 
-func (l Launcher) dial(ctx context.Context) (net.Conn, Reply, error) {
+func (l Launcher) dial(ctx context.Context) (net.Conn, Reply, error) { return l.dialOperation(ctx, "") }
+func (l Launcher) dialOperation(ctx context.Context, operation string) (net.Conn, Reply, error) {
 	_, pin, err := ParseSession(l.Credential.Session)
 	if err != nil {
 		return nil, Reply{}, err
@@ -127,7 +128,7 @@ func (l Launcher) dial(ctx context.Context) (net.Conn, Reply, error) {
 	stop := context.AfterFunc(ctx, func() { c.Close() })
 	defer stop()
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
-	if err = writeJSON(c, Hello{Session: l.Credential.Session, Token: l.Credential.Token, Name: l.Credential.Name}); err != nil {
+	if err = writeJSON(c, Hello{Operation: operation, Session: l.Credential.Session, Token: l.Credential.Token, Name: l.Credential.Name}); err != nil {
 		c.Close()
 		return nil, Reply{}, err
 	}
