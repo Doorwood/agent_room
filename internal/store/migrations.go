@@ -7,11 +7,13 @@ import (
 	"fmt"
 )
 
-const schemaVersion = 2
+const schemaVersion = 4
 
 var migrationFiles = []string{
 	"schema/001_initial.sql",
 	"schema/002_room_integrity.sql",
+	"schema/003_roles.sql",
+	"schema/004_private_turns.sql",
 }
 
 //go:embed schema/*.sql
@@ -134,6 +136,20 @@ func validateSchemaAtVersion(ctx context.Context, db migrationQuerier, version i
 	}
 	if err := validateForeignKeys(ctx, db); err != nil {
 		return err
+	}
+	if version >= 4 {
+		for _, table := range []string{"private_turns", "private_turn_frontiers"} {
+			var n int
+			if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil {
+				return fmt.Errorf("missing private turn schema: %w", err)
+			}
+		}
+	}
+	if version >= 3 {
+		var n int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM member_roles").Scan(&n); err != nil {
+			return fmt.Errorf("missing roles schema: %w", err)
+		}
 	}
 	if version >= 2 {
 		return validateVersionTwoSchema(ctx, db)

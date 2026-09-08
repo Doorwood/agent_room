@@ -18,6 +18,7 @@ import (
 var ErrAdmission = errors.New("admission unavailable or not approved")
 
 type JoinRequest struct {
+	Role    string   `json:"role,omitempty"`
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
 	State   string   `json:"state"`
@@ -59,11 +60,11 @@ func validJoinName(name string) bool {
 
 func scanJoin(row interface{ Scan(...any) error }) (JoinRequest, error) {
 	var r JoinRequest
-	err := row.Scan(&r.ID, &r.Name, &r.State, &r.Address, &r.UID, &r.Created)
+	err := row.Scan(&r.ID, &r.Name, &r.State, &r.Address, &r.UID, &r.Created, &r.Role)
 	return r, err
 }
 
-const joinColumns = "id,name,state,address,uid,created"
+const joinColumns = "id,name,state,address,uid,created,coalesce((SELECT role FROM member_roles WHERE member_roles.room_id=join_requests.room_id AND member_roles.uid=join_requests.uid),'roommate')"
 
 func (s *Store) RequestJoin(ctx context.Context, rid room.RoomID, token, name, address string) (result JoinRequest, err error) {
 	hash, err := tokenHash(token)
@@ -133,7 +134,10 @@ func (s *Store) AuthenticateJoin(ctx context.Context, rid room.RoomID, token str
 
 // DecideJoin binds approval to the secret-bearing request, never to its chosen name.
 // The virtual identity and approval are published in one transaction.
-func (s *Store) DecideJoin(ctx context.Context, rid room.RoomID, id, action string) (result JoinRequest, err error) {
+func (s *Store) DecideJoin(ctx context.Context, rid room.RoomID, id, action string) (JoinRequest, error) {
+	return s.decideJoin(ctx, rid, id, action, "roommate")
+}
+func (s *Store) decideJoin(ctx context.Context, rid room.RoomID, id, action, role string) (result JoinRequest, err error) {
 	err = s.transact(ctx, func(tx *sql.Tx) error {
 		r, e := scanJoin(tx.QueryRowContext(ctx, "SELECT "+joinColumns+" FROM join_requests WHERE room_id=? AND id=?", rid, id))
 		if e != nil {
@@ -155,6 +159,10 @@ func (s *Store) DecideJoin(ctx context.Context, rid room.RoomID, id, action stri
 			if _, e = tx.ExecContext(ctx, "INSERT INTO members(room_id,uid,username,added_at) VALUES(?,?,?,?)", rid, r.UID, r.Name, encodeTime(nowUTC())); e != nil {
 				return fmt.Errorf("member name already in use or storage unavailable: %w", e)
 			}
+			if _, e = tx.ExecContext(ctx, "INSERT INTO member_roles(room_id,uid,role) VALUES(?,?,?)", rid, r.UID, role); e != nil {
+				return e
+			}
+			r.Role = role
 			r.State = "approved"
 		case "deny":
 			if r.State != "pending" {

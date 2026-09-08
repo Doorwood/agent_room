@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"agent_romm/internal/questions"
 	"agent_romm/internal/room"
 	"agent_romm/internal/store"
 )
@@ -23,6 +24,7 @@ type Sessions interface {
 	ServeMember(context.Context, net.Conn, room.Member)
 }
 type Server struct {
+	questions  *questions.Service
 	privateDir string
 	uploadMu   sync.Mutex
 	store      *store.Store
@@ -90,6 +92,17 @@ func Start(ctx context.Context, address, privateDir string, rid room.RoomID, st 
 		s.Close()
 		return nil, err
 	}
+	var runner questions.SharedRunner
+	if q, ok := sessions.(interface {
+		Question(context.Context, room.Actor, room.ClientMessageID, string) (room.QuestionAnswer, error)
+	}); ok {
+		runner = q.Question
+	}
+	s.questions, err = questions.Open(privateDir, runner)
+	if err != nil {
+		s.Close()
+		return nil, err
+	}
 	s.http = &http.Server{Handler: http.HandlerFunc(s.manage), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 15 * time.Second}
 	s.wg.Add(2)
 	go func() {
@@ -150,7 +163,7 @@ func (s *Server) handle(c net.Conn, sessions Sessions) {
 	if err := readJSON(c, &h); err != nil {
 		return
 	}
-	if h.Operation != "" && h.Operation != "upload" {
+	if h.Operation != "" && h.Operation != "upload" && h.Operation != "download" && h.Operation != "questions" {
 		writeJSON(c, Reply{State: "unsupported-operation"})
 		return
 	}
@@ -184,7 +197,20 @@ func (s *Server) handle(c net.Conn, sessions Sessions) {
 		return
 	}
 	_ = c.SetDeadline(time.Time{})
+	if h.Operation == "questions" {
+		s.serveQuestions(c, member, h.Token)
+		return
+	}
+	if h.Operation == "download" {
+		s.sendFile(c)
+		return
+	}
 	if h.Operation == "upload" {
+		role, err := s.store.MemberRole(s.ctx, s.room, member.UID)
+		if err != nil || role != "roommate" {
+			writeJSON(c, uploadReply{Error: "此身份不能上传附件或安排工作"})
+			return
+		}
 		s.receiveUpload(c, h.Token)
 		return
 	}
@@ -212,6 +238,7 @@ func (s *Server) manage(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		ID     string `json:"id"`
 		Action string `json:"action"`
+		Role   string `json:"role"`
 	}
 	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 	d.DisallowUnknownFields()
@@ -220,8 +247,8 @@ func (s *Server) manage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	result, err := s.store.DecideJoin(r.Context(), s.room, in.ID, in.Action)
-	if err == nil && in.Action == "revoke" {
+	result, err := s.store.DecideJoinRole(r.Context(), s.room, in.ID, in.Action, in.Role)
+	if err == nil && (in.Action == "revoke" || in.Action == "role") {
 		for c, uid := range s.conns {
 			if uid == result.UID {
 				c.Close()
@@ -253,6 +280,9 @@ func (s *Server) Close() error {
 		}
 		s.mu.Unlock()
 		s.wg.Wait()
+		if s.questions != nil {
+			s.questions.Close()
+		}
 		if info, e := os.Lstat(s.adminPath); e == nil && s.adminInfo != nil && os.SameFile(info, s.adminInfo) {
 			os.Remove(s.adminPath)
 		}
@@ -261,6 +291,9 @@ func (s *Server) Close() error {
 }
 
 func Manage(ctx context.Context, privateDir, action, id string, out io.Writer) error {
+	return ManageRole(ctx, privateDir, action, id, "", out)
+}
+func ManageRole(ctx context.Context, privateDir, action, id, role string, out io.Writer) error {
 	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(privateDir, "network-admin.sock"))
 	}}
@@ -269,7 +302,7 @@ func Manage(ctx context.Context, privateDir, action, id string, out io.Writer) e
 	var body io.Reader
 	if action != "requests" {
 		method = http.MethodPost
-		b, _ := json.Marshal(map[string]string{"action": action, "id": id})
+		b, _ := json.Marshal(map[string]string{"action": action, "id": id, "role": role})
 		body = bytes.NewReader(b)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, "http://unix/admission", body)

@@ -178,6 +178,34 @@ and `~/.local/bin/agent_room-update` wrappers, and remove only
 user configuration directory to preserve host state and member credentials.
 The marked PATH block can remain if you use `~/.local/bin` for other tools.
 
+## 1.0.6 更新
+
+- 已发送附件支持预览和下载；刷新后恢复图片预览。
+- 草稿保存到本机，断开重连、重启客户端后恢复。
+- 支持搜索已同步的完整聊天历史；显示任务队列，明确“停止当前任务”不暂停后续任务。
+- 新增 visitor（参观者，只读历史）和 asker（询问者，只读问答）权限，由 Host 分配。
+- 询问者复用 Host 的 Codex 登录、模型与 session，无需额外 API Key；问答在单独视图展示，协作成员可按成员查看。
+
+```sh
+agent_room requests
+agent_room approve REQUEST_ID --role visitor
+agent_room approve REQUEST_ID --role asker
+agent_room role REQUEST_ID --role roommate
+```
+
+以上管理命令在 Host 的项目目录执行，可用 `--state DIR` 指定状态目录。
+
+问答会进入共享 Codex 上下文，隐藏页面记录不代表记忆隔离。问答使用只读沙箱，与正式任务串行执行；当前存在 MCP、Apps、Hooks 等无法确认只读的扩展配置时，会拒绝问答，不降级为可写任务。协议与界面已通过模拟器测试，真实 Codex 工具写入阻断尚未实机验收。
+
+更新前备份 Host 状态目录。此版本将数据库迁移到 schema 4，迁移后不能直接用旧版 Host 打开。升级后重启 Host、Dashboard 和客户端才能使用新能力；安装更新不会自动重启运行中的进程。
+
+```sh
+npm install -g menmu-agent-room@1.0.6 --registry=https://registry.npmjs.org/
+agent_room --version
+```
+
+使用持久化安装脚本的用户执行 `agent_room-update` 更新对应安装。
+
 ## 1.0.5 更新
 
 - Room 项目名称同步、缓存和搜索；支持删除本机 Room 记录，再次添加复用成员身份。

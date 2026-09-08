@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"agent_romm/internal/answerwindow"
@@ -40,17 +41,23 @@ func (c Catalog) Connect(ctx context.Context, r Room, update Update) error {
 	}
 	defer window.Close()
 	window.EnableUploads(launcher.Upload)
+	window.EnableDownloads(launcher.Download)
+	window.EnableQuestions(launcher.Query)
+	window.DraftDirectory(filepath.Join(c.Config, "agent_room", "drafts"))
 	window.Metadata(r.Address, r.Session, r.Name)
 	update("connecting", "正在同步 room", window.URL())
 	reader, writer := io.Pipe()
 	defer writer.Close()
 	defer reader.Close()
-	deps := client.Deps{Launcher: launcher, Cursors: &client.ReplayCursors{}, OnAnswer: window.Add, OnEvent: window.Event, OnMembers: window.Members, Submissions: window.EnableChat(), OnRoom: window.Room, OnActiveTurn: window.ActiveTurn, OnProject: func(project string) {
+	deps := client.Deps{Launcher: launcher, Cursors: &client.ReplayCursors{}, OnAnswer: window.Add, OnEvent: window.Event, OnMembers: window.Members, Submissions: window.EnableChat(), OnRoom: window.Room, OnActiveTurn: window.ActiveTurn, OnQueue: window.Queue, OnProject: func(project string) {
 		if err := c.RememberProject(r.Address, r.Session, project); err != nil {
 			update("connecting", "项目名称缓存失败："+client.SafeText(err.Error()), window.URL())
 		}
 	}, OnConnection: func(connected bool) {
 		window.Connection(connected)
+		if connected {
+			window.RefreshRole(ctx)
+		}
 		if connected {
 			update("connected", "", window.URL())
 		} else {

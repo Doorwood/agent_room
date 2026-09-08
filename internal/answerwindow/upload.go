@@ -23,7 +23,7 @@ func (w *Window) postUpload(out http.ResponseWriter, r *http.Request) {
 	}
 	w.mu.Lock()
 	upload := w.upload
-	connected := w.connected
+	connected := w.connected && w.userRole != "visitor" && w.userRole != "asker"
 	w.mu.Unlock()
 	if upload == nil || !connected {
 		http.Error(out, "上传不可用，请先连接 host", 503)

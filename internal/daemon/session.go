@@ -209,6 +209,21 @@ func (s *Server) dispatch(ctx context.Context, w sessionWriter, actor room.Actor
 	if e.Kind != protocol.KindRequest || len(e.Requires) > 0 {
 		return invalid()
 	}
+	if roles, ok := s.deps.Members.(interface {
+		MemberRole(context.Context, room.RoomID, room.UID) (string, error)
+	}); ok {
+		role, err := roles.MemberRole(ctx, s.cfg.RoomID, actor.UID)
+		if err != nil {
+			return false, w.fail(e.ID, "permission-denied")
+		}
+		if role != "roommate" {
+			switch e.Method {
+			case "ack", "heartbeat", "who", "members":
+			default:
+				return false, w.fail(e.ID, "read-only-role")
+			}
+		}
+	}
 	switch e.Method {
 	case "submit", "note", "steer", "cancel", "recover", "resolve":
 		if len(e.Body) > MaximumMutationBodyBytes {

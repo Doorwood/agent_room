@@ -156,7 +156,9 @@ func (s *Server) receiveUpload(c net.Conn, token string) {
 	target := filepath.Join(dir, req.SHA256+"-"+req.Name)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err = s.store.AuthenticateJoin(s.ctx, s.room, token); err != nil {
+	member, authErr := s.store.AuthenticateJoin(s.ctx, s.room, token)
+	role, roleErr := s.store.MemberRole(s.ctx, s.room, member.UID)
+	if authErr != nil || roleErr != nil || role != "roommate" {
 		writeJSON(c, uploadReply{Error: "membership no longer approved"})
 		return
 	}

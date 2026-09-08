@@ -78,7 +78,23 @@ test('history loads upwards, attachments submit, and room deletion persists',asy
  ]);
  await expect(chat.locator('#attachments .attachment')).toHaveCount(2);await expect(chat.locator('#attachments img')).toHaveCount(1);
  await expect(chat.locator('#send-status')).toHaveText('附件已上传，点击发送提交给模型');
+ await chat.locator('#message').fill('附件草稿');
+ await chat.reload();await expect(chat.locator('#message')).toHaveValue('附件草稿');await expect(chat.locator('#attachments img')).toHaveCount(1);
+ await expect(chat.locator('#attachments img')).toHaveJSProperty('complete',true);
  await chat.locator('#send').click();await expect(chat.locator('#attachments .attachment')).toHaveCount(0);
  await expect(chat.locator('.user-message .answer-text').last()).toContainText('notes.txt');await expect(chat.locator('.user-message .answer-text').last()).toContainText('pixel.png');
+ await expect(chat.locator('.user-message').last().locator('a.sent-attachment')).toHaveCount(2);
+ const downloaded=chat.waitForEvent('download');await chat.locator('.user-message').last().getByRole('link',{name:'notes.txt',exact:true}).click();const file=await downloaded;expect(file.suggestedFilename()).toBe('notes.txt');
+ await chat.locator('#message').fill('跨重连草稿');await chat.waitForResponse(r=>r.url().endsWith('/draft') && r.request().method()==='POST');
+ await entry.getByRole('button',{name:'断开连接'}).click();await entry.getByRole('button',{name:'连接',exact:true}).click();await entry.getByRole('link',{name:'打开对话 ↗'}).waitFor();const reopened=page.waitForEvent('popup');await entry.getByRole('link',{name:'打开对话 ↗'}).click();const next=await reopened;await expect(next.locator('#message')).toHaveValue('跨重连草稿');
  page.once('dialog',dialog=>dialog.accept());await entry.getByRole('button',{name:'删除 Room'}).click();await expect(entry).toHaveCount(0);await page.reload();await expect(entry).toHaveCount(0);
+});
+
+test('visitor searches read-only history and asker uses an independent area',async({page})=>{
+ await page.goto(url);
+ async function join(name,port){await page.locator('#address').fill('127.0.0.1:'+port);await page.locator('#session').fill('1'.repeat(32)+'.'+'2'.repeat(64));await page.locator('#name').fill(name);await page.locator('#join').click();const entry=page.locator('.room').filter({hasText:'127.0.0.1:'+port});await entry.getByRole('link',{name:'打开对话 ↗'}).waitFor();const opened=page.waitForEvent('popup');await entry.getByRole('link',{name:'打开对话 ↗'}).click();return opened;}
+ const visitor=await join('visitor',7460);await expect(visitor.locator('#role-label')).toContainText('参观者');await expect(visitor.locator('#composer')).toBeHidden();await expect(visitor.locator('#questions-panel')).toBeHidden();await visitor.locator('#history-query').fill('下一步');await visitor.locator('#history-search').getByRole('button',{name:'搜索',exact:true}).click();await expect(visitor.locator('#search-results')).toContainText('一起看看项目的下一步');
+ expect(await visitor.evaluate(async()=>{const r=await fetch('submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'a'.repeat(32),text:'run work'})});return r.status})).toBe(403);
+ const asker=await join('asker',7461);await expect(asker.locator('#role-label')).toContainText('询问者');await expect(asker.locator('#composer')).toBeHidden();await asker.locator('#question-view').click();const before=await asker.locator('.user-message').count();await asker.locator('#ask-text').fill('独立问题：解释事务');await asker.locator('#ask-send').click();await expect(asker.locator('#questions-list')).toContainText('只读回答：独立问题：解释事务');await expect(asker.locator('.user-message')).toHaveCount(before);
+ const member=await join('observer',7462);await member.locator('#question-view').click();await expect(member.locator('#questions-list')).toContainText('独立问题：解释事务');await expect(member.locator('#ask-form')).toBeHidden();await member.locator('#question-member').selectOption('1001');await expect(member.locator('#questions-list')).toContainText('暂无问答记录');await member.locator('#question-member').selectOption('1002');await expect(member.locator('#questions-list')).toContainText('解释事务');await expect(member.locator('#answers')).toBeHidden();await member.locator('#main-view').click();await expect(member.locator('#questions-panel')).toBeHidden();await expect(member.locator('#answers')).toBeVisible();
 });

@@ -113,3 +113,47 @@ func (w *Window) serveHistory(out http.ResponseWriter, r *http.Request) {
 		Room    string   `json:"room"`
 	}{answers, more, roomID})
 }
+
+func (w *Window) searchHistory(out http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	if len(q) > 256 || q == "" {
+		http.Error(out, "请输入 1–256 字节关键词", 400)
+		return
+	}
+	before := uint64(1<<63 - 1)
+	if value := r.URL.Query().Get("before"); value != "" {
+		var err error
+		before, err = strconv.ParseUint(value, 10, 63)
+		if err != nil {
+			http.Error(out, "invalid cursor", 400)
+			return
+		}
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	rows, err := w.history.Query(`SELECT body FROM answers WHERE seq < ? AND instr(lower(json_extract(body,'$.text')),lower(?))>0 ORDER BY seq DESC LIMIT 51`, before, q)
+	if err != nil {
+		http.Error(out, "搜索失败", 500)
+		return
+	}
+	defer rows.Close()
+	var answers []Answer
+	for rows.Next() {
+		var body string
+		var a Answer
+		if rows.Scan(&body) != nil || json.Unmarshal([]byte(body), &a) != nil {
+			http.Error(out, "搜索失败", 500)
+			return
+		}
+		answers = append(answers, a)
+	}
+	more := len(answers) > 50
+	if more {
+		answers = answers[:50]
+	}
+	out.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(out).Encode(struct {
+		Answers []Answer `json:"answers"`
+		More    bool     `json:"more"`
+	}{answers, more})
+}

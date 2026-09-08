@@ -17,6 +17,14 @@ type observedAgent struct {
 	events <-chan room.AgentEvent
 }
 
+func (a observedAgent) StartReadOnlyTurn(ctx context.Context, thread room.ThreadID, id room.ClientMessageID, text string) (room.TurnID, error) {
+	agent, ok := a.Agent.(room.ReadOnlyAgent)
+	if !ok {
+		return "", &room.MutationError{Operation: "turn/start", Certainty: room.DeliveryNotSent, Err: fmt.Errorf("只读问答不可用")}
+	}
+	return agent.StartReadOnlyTurn(ctx, thread, id, text)
+}
+
 func (a observedAgent) Events() <-chan room.AgentEvent { return a.events }
 func observeAgent(ctx context.Context, agent room.Agent, log *observability.Logger) (room.Agent, <-chan struct{}) {
 	events := make(chan room.AgentEvent)

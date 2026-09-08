@@ -54,7 +54,7 @@ func ProductionDependencies() Dependencies {
 	}}
 }
 
-const help = "agent_room: shared project sessions\ncommands: dashboard, host, join, answers, session, requests, approve, deny, revoke, version, doctor\nStart: agent_room dashboard\nJoin: agent_room join HOST_IP COMPLETE_SESSION_ID --name YOUR_NAME --answers\nHost: agent_room host .\nUse <command> --help for examples and options.\nLegacy commands: agent_room help legacy\n"
+const help = "agent_room: shared project sessions\ncommands: dashboard, host, join, answers, session, requests, approve, deny, revoke, role, version, doctor\nStart: agent_room dashboard\nJoin: agent_room join HOST_IP COMPLETE_SESSION_ID --name YOUR_NAME --answers\nHost: agent_room host .\nUse <command> --help for examples and options.\nLegacy commands: agent_room help legacy\n"
 
 // Run returns 2 for invalid arguments, 3 for unsupported platforms, and 1 for
 // operational failures. It never resolves a Codex executable for help/parsing.

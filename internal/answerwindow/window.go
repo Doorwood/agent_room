@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -42,20 +43,27 @@ const maxAnswers = 100
 const maxTextBytes = 8 << 20
 
 type Answer struct {
-	TaskStatus string    `json:"taskStatus,omitempty"`
-	Owner      *room.UID `json:"owner,omitempty"`
-	Ack        string    `json:"ack,omitempty"`
-	Turn       string    `json:"turn,omitempty"`
-	Seq        uint64    `json:"seq"`
-	Text       string    `json:"text"`
-	Role       string    `json:"role"`
-	Author     string    `json:"author"`
-	UID        room.UID  `json:"uid"`
-	Kind       string    `json:"kind"`
-	ClientID   string    `json:"clientId"`
-	Time       string    `json:"time"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+	TaskStatus  string       `json:"taskStatus,omitempty"`
+	Owner       *room.UID    `json:"owner,omitempty"`
+	Ack         string       `json:"ack,omitempty"`
+	Turn        string       `json:"turn,omitempty"`
+	Seq         uint64       `json:"seq"`
+	Text        string       `json:"text"`
+	Role        string       `json:"role"`
+	Author      string       `json:"author"`
+	UID         room.UID     `json:"uid"`
+	Kind        string       `json:"kind"`
+	ClientID    string       `json:"clientId"`
+	Time        string       `json:"time"`
 }
 type Window struct {
+	queue        []room.QueuedMessage
+	userRole     string
+	askReady     bool
+	query        QueryFunc
+	draftDir     string
+	download     DownloadFunc
 	activeTurn   string
 	upload       UploadFunc
 	history      *sql.DB
@@ -92,7 +100,8 @@ func Start() (*Window, error) {
 	if err != nil {
 		return nil, err
 	}
-	w := &Window{listener: l, path: "/" + hex.EncodeToString(token[:]) + "/", status: "正在连接", names: make(map[room.UID]string)}
+	cfg, _ := os.UserConfigDir()
+	w := &Window{draftDir: filepath.Join(cfg, "agent_room", "drafts"), listener: l, path: "/" + hex.EncodeToString(token[:]) + "/", status: "正在连接", names: make(map[room.UID]string)}
 	if err := w.openHistory(); err != nil {
 		l.Close()
 		if w.history != nil {
@@ -101,7 +110,7 @@ func Start() (*Window, error) {
 		os.RemoveAll(w.historyDir)
 		return nil, err
 	}
-	w.server = &http.Server{Handler: http.HandlerFunc(w.serve), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, ReadTimeout: 70 * time.Second, WriteTimeout: 70 * time.Second}
+	w.server = &http.Server{Handler: http.HandlerFunc(w.serve), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, ReadTimeout: 110 * time.Second, WriteTimeout: 110 * time.Second}
 	go w.server.Serve(l)
 	return w, nil
 }
@@ -120,6 +129,7 @@ func (w *Window) Room(id string) {
 	if w.room == id {
 		return
 	}
+	w.queue = nil
 	w.activeTurn = ""
 	w.room = id
 	if _, err := w.history.Exec("DELETE FROM answers"); err != nil {
@@ -202,7 +212,7 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 		http.Error(out, "invalid origin", http.StatusForbidden)
 		return
 	}
-	if r.Method != http.MethodGet && !(r.Method == http.MethodPost && (r.URL.Path == w.path+"submit" || r.URL.Path == w.path+"cancel" || r.URL.Path == w.path+"upload")) {
+	if r.Method != http.MethodGet && !(r.Method == http.MethodPost && (r.URL.Path == w.path+"questions" || r.URL.Path == w.path+"draft" || r.URL.Path == w.path+"submit" || r.URL.Path == w.path+"cancel" || r.URL.Path == w.path+"upload")) {
 		out.Header().Set("Allow", "GET")
 		http.Error(out, "read-only", http.StatusMethodNotAllowed)
 		return
@@ -212,6 +222,12 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 	out.Header().Set("Referrer-Policy", "no-referrer")
 	out.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'")
 	switch r.URL.Path {
+	case w.path + "questions":
+		w.serveQuestions(out, r)
+	case w.path + "draft":
+		w.serveDraft(out, r)
+	case w.path + "file":
+		w.serveFile(out, r)
 	case w.path + "upload":
 		if r.Method != http.MethodPost {
 			http.Error(out, "POST required", 405)
@@ -242,6 +258,8 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 	case w.path + "style.css":
 		out.Header().Set("Content-Type", "text/css; charset=utf-8")
 		_, _ = out.Write(style)
+	case w.path + "search":
+		w.searchHistory(out, r)
 	case w.path + "history":
 		w.serveHistory(out, r)
 	case w.path + "answers":
@@ -253,19 +271,22 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 			return
 		}
 		state := struct {
-			ActiveTurn    string        `json:"activeTurn"`
-			Revision      uint64        `json:"revision"`
-			Answers       []Answer      `json:"answers"`
-			Dropped       bool          `json:"dropped"`
-			Status        string        `json:"status"`
-			Room          string        `json:"room"`
-			Host          string        `json:"host"`
-			Session       string        `json:"session"`
-			Viewer        string        `json:"viewer"`
-			Members       []room.Member `json:"members"`
-			ClientVersion string        `json:"clientVersion"`
-			Connected     bool          `json:"connected"`
-		}{w.activeTurn, w.revision, page, more, w.status, w.room, w.host, w.session, w.viewer, nil, buildinfo.Version, w.connected}
+			Queue         []room.QueuedMessage `json:"queue"`
+			UserRole      string               `json:"userRole"`
+			AskReady      bool                 `json:"askReady"`
+			ActiveTurn    string               `json:"activeTurn"`
+			Revision      uint64               `json:"revision"`
+			Answers       []Answer             `json:"answers"`
+			Dropped       bool                 `json:"dropped"`
+			Status        string               `json:"status"`
+			Room          string               `json:"room"`
+			Host          string               `json:"host"`
+			Session       string               `json:"session"`
+			Viewer        string               `json:"viewer"`
+			Members       []room.Member        `json:"members"`
+			ClientVersion string               `json:"clientVersion"`
+			Connected     bool                 `json:"connected"`
+		}{w.queue, w.userRole, w.askReady, w.activeTurn, w.revision, page, more, w.status, w.room, w.host, w.session, w.viewer, nil, buildinfo.Version, w.connected}
 		for uid, name := range w.names {
 			state.Members = append(state.Members, room.Member{UID: uid, Name: name})
 		}
@@ -301,4 +322,11 @@ func (w *Window) ActiveTurn(turn string) {
 		w.activeTurn = turn
 		w.revision++
 	}
+}
+
+func (w *Window) Queue(snapshot room.Snapshot) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.queue = snapshot.Queue
+	w.revision++
 }

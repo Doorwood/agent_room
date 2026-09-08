@@ -12,15 +12,18 @@ const sendButton = document.getElementById('send');
 const sendStatus = document.getElementById('send-status');
 const stopButton=document.getElementById("stop-model");
 let stopping=false, stopAttempt=null;
+let asking=false,questionAttempt=null,questionsBefore=0,questionView=false,questionMember="";
 let sending = false;
 let attachments=[], uploading=false;
 const fileInput=document.getElementById("files");
 let available = false;
 let attempt = null;
-let restored = false;
+let restored = false;let draftWrites=Promise.resolve();
 const draftKey = 'agent-room-draft:' + location.pathname;
 function saveDraft() {
-  try { sessionStorage.setItem(draftKey, JSON.stringify({text:input.value, attempt, attachments:attachments.filter(a=>a.path).map(({name,path,size})=>({name,path,size}))})); } catch { /* Storage is optional; in-memory retry IDs remain valid. */ }
+  const draft={text:input.value,attempt,askText:document.getElementById('ask-text').value,questionAttempt,attachments:attachments.filter(a=>a.path).map(({name,path,size})=>({name,path,size}))};
+  if(lastState?.session)draftWrites=draftWrites.catch(()=>{}).then(async()=>{const response=await fetch('draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(draft)});if(!response.ok)throw new Error('草稿未保存');document.getElementById('draft-status').textContent=draft.text || draft.askText || draft.attachments.length?'草稿已保存到本机':'';}).catch(()=>{sendStatus.textContent='草稿未保存到本机，请暂勿关闭页面';});
+  try { sessionStorage.setItem(draftKey, JSON.stringify(draft)); } catch { /* Storage is optional; in-memory retry IDs remain valid. */ }
 }
 input.addEventListener('input', saveDraft);
 form.addEventListener('submit', async event => {
@@ -83,6 +86,7 @@ function sidebar(state) {
   const signature = JSON.stringify(members);
   if (signature === memberSignature) return;
   memberSignature = signature;
+  const selector=document.getElementById('question-member');selector.replaceChildren(new Option('全部询问者',''));for(const m of members)selector.add(new Option(m.Name,String(m.UID)));selector.value=questionMember;
   const list = document.getElementById('member-list');
   list.replaceChildren();
   for (const member of [{UID:null,Name:'全部成员'}, ...members]) {
@@ -129,9 +133,9 @@ function updateCard(article, answer) {
   if (r.signature === signature) return;
   r.signature = signature;
   article.className = answer.role === 'user' ? 'user-message' : 'model-message task-message';
-  r.label.textContent = (answer.author || '成员') + (answer.kind === 'note' ? ' · 笔记' : answer.kind === 'steer' ? ' · 补充要求' : answer.role === 'assistant' ? (answer.working ? ' · 处理中' : answer.final ? ' · 回答' : ' · 任务状态') : '');
+  r.label.textContent = (answer.author || '成员') + (answer.kind === 'note' ? ' · 笔记' : answer.kind === 'steer' ? ' · 补充要求' : answer.role === 'assistant' ? (answer.queued ? ' · 排队中' : answer.working ? ' · 处理中' : answer.final ? ' · 回答' : ' · 任务状态') : '');
   article.classList.toggle('is-working', Boolean(answer.working));
-  if (answer.role === 'assistant') renderMarkdown(r.body,answer.text); else r.body.textContent = answer.text;
+  if (answer.role === 'assistant') renderMarkdown(r.body,answer.text); else {r.body.textContent = answer.text;for(const file of answer.attachments || []){const link=document.createElement('a');link.href='file?id='+encodeURIComponent(file.id);link.target='_blank';link.rel='noopener noreferrer';link.className='sent-attachment';link.textContent=file.name;if(/\.(png|jpg|jpeg|gif|webp)$/i.test(file.name)){const img=document.createElement('img');img.src=link.href+'&preview=1';img.alt=file.name;img.loading='lazy';link.prepend(img);}r.body.append(link);}}
   r.acknowledgement.hidden = answer.role !== 'user' || !answer.ack;
   r.acknowledgement.textContent = '模型助手 · 自动状态：' + (answer.ack || '已接收');
   const progress = answer.progress || [];
@@ -164,12 +168,20 @@ function renderState(state, prepend=false) {
       previous = element;
     }
     lastState = state;
+    const role=state.userRole || 'roommate';
+    document.getElementById('role-label').textContent=({roommate:'协作成员',visitor:'参观者 · 仅查看和搜索聊天记录',asker:'询问者 · 请切换到询问者问答'})[role] || role;
+    document.getElementById('queue-panel').hidden=role!=='roommate';
+    const queue=state.queue || [];document.getElementById('queue-summary').textContent='待执行任务 · '+queue.length+(state.activeTurn?'（另有 1 项执行中）':'');const queueList=document.getElementById('queue-list');queueList.replaceChildren();for(const entry of queue){const li=document.createElement('li');li.textContent=entry.Actor.Name+'：'+entry.Input.Text.slice(0,160);queueList.append(li);}
+    form.hidden=role!=='roommate';document.getElementById('conversation-views').hidden=role==='visitor' || !state.userRole;
+    applyQuestionView();
+    document.getElementById('ask-form').hidden=role!=='asker';document.getElementById('ask-send').disabled=!state.askReady || asking;
+    document.getElementById('ask-readiness').textContent=state.askReady?'复用 Host 的 Codex 登录和会话；主任务忙碌时请稍后提问':'Host 暂不支持只读问答，请联系房主';
     sidebar(state);
     applyFilter();
     revision = state.revision;
     statusNode.textContent = state.status;
     stopButton.disabled=stopping || !available || !state.connected || !state.activeTurn;
-    if(stopAttempt && stopAttempt.expectedTurn!==state.activeTurn){stopAttempt=null;stopButton.textContent='停止模型';}
+    if(stopAttempt && stopAttempt.expectedTurn!==state.activeTurn){stopAttempt=null;stopButton.textContent='停止当前任务';}
     sendButton.disabled = sending || uploading || !room || state.connected === false;
     document.getElementById('client-version').textContent = '本机客户端 ' + (state.clientVersion ? 'v' + state.clientVersion : '版本未知');
 
@@ -188,7 +200,7 @@ async function poll() {
     available = true;
     if (!restored) {
       restored = true;
-      try {const saved = JSON.parse(sessionStorage.getItem(draftKey)); if (saved) {input.value = saved.text || ''; attempt = saved.attempt || null;attachments=saved.attachments || [];renderAttachments();}} catch { /* Ignore unavailable storage. */ }
+      try {const draftResponse=await fetch('draft',{cache:'no-store'});const saved = draftResponse.ok ? await draftResponse.json() : JSON.parse(sessionStorage.getItem(draftKey)); if (saved && !input.value) {input.value = saved.text || ''; attempt = saved.attempt || null;attachments=saved.attachments || [];document.getElementById("ask-text").value=saved.askText || "";questionAttempt=saved.questionAttempt || null;renderAttachments();}} catch { /* Ignore unavailable storage. */ }
     }
     if (room !== state.room) {
       container.replaceChildren();
@@ -245,7 +257,7 @@ function renderAttachments() {
  const list=document.getElementById('attachments');list.replaceChildren();
  for(const a of attachments) {
   const item=document.createElement('div');item.className='attachment';
-  if(a.preview){const img=document.createElement('img');img.src=a.preview;img.alt=a.name;item.append(img);}
+  if(a.preview || /\.(png|jpg|jpeg|gif|webp)$/i.test(a.name)){const img=document.createElement('img');img.src=a.preview || 'file?preview=1&id='+encodeURIComponent(a.path.split('/').at(-1));img.alt=a.name;item.append(img);}
   const label=document.createElement('span');label.textContent=a.name+' · '+Math.ceil(a.size/1024)+' KB';
   const remove=document.createElement('button');remove.type='button';remove.textContent='移除';remove.disabled=sending || uploading;
   remove.addEventListener('click',()=>{attachments=attachments.filter(x=>x!==a);if(a.preview)URL.revokeObjectURL(a.preview);attempt=null;renderAttachments();saveDraft();});
@@ -288,3 +300,41 @@ stopButton.addEventListener('click',async()=>{
  }catch(error){stopButton.textContent='重试停止';sendStatus.textContent=error.message;}
  finally{stopping=false;stopButton.disabled=!available || !lastState?.connected || !lastState?.activeTurn;}
 });
+
+let searchBefore='',searchGeneration=0;
+async function searchHistory(append=false){const generation=++searchGeneration;const results=document.getElementById('search-results');if(!append){searchBefore='';results.replaceChildren();}const q=document.getElementById('history-query').value.trim();if(!q)return;
+ try{const response=await fetch('search?q='+encodeURIComponent(q)+(searchBefore?'&before='+searchBefore:''));if(!response.ok)throw new Error(await response.text());const state=await response.json();if(generation!==searchGeneration)return;
+ results.querySelector('button')?.remove();for(const a of state.answers || []){const article=document.createElement('article');article.textContent=(a.role==='user'?'成员提问':'模型回复')+' · '+a.time+'\n'+a.text;results.append(article);searchBefore=a.seq;}if(!results.children.length)results.textContent='没有匹配记录';if(state.more){const more=document.createElement('button');more.textContent='更多搜索结果';more.onclick=()=>searchHistory(true);results.append(more);}
+ }catch(error){results.textContent=error.message;}}
+document.getElementById('history-search').addEventListener('submit',e=>{e.preventDefault();searchHistory();});document.getElementById('clear-search').addEventListener('click',()=>{searchGeneration++;document.getElementById('history-query').value='';document.getElementById('search-results').replaceChildren();});
+
+async function loadQuestions(append=false){
+ const list=document.getElementById('questions-list');if(!append){questionsBefore=0;list.replaceChildren();}
+ try{const response=await fetch('questions?'+new URLSearchParams({before:String(questionsBefore),uid:questionMember}),{cache:'no-store'});if(!response.ok)throw new Error(await response.text());const data=await response.json();
+ for(const item of data.entries || []){const card=document.createElement('article');const heading=document.createElement('strong');heading.textContent=item.name+' · '+({running:'回答中',completed:'已回答',failed:'未完成'}[item.state] || item.state);const q=document.createElement('p');q.textContent=item.question;const a=document.createElement('div');renderMarkdown(a,item.answer || '正在回答…');card.append(heading,q,a);list.append(card);questionsBefore=item.seq;}
+ document.getElementById('questions-more').hidden=!data.more;
+ if(!list.children.length)list.textContent='暂无问答记录';
+ }catch(error){document.getElementById('ask-status').textContent=error.message;}
+}
+document.getElementById('questions-refresh').onclick=()=>loadQuestions();document.getElementById('questions-more').onclick=()=>loadQuestions(true);
+document.getElementById('questions-panel').addEventListener('toggle',event=>{if(event.target.open)loadQuestions();});
+document.getElementById('ask-form').addEventListener('submit',async event=>{event.preventDefault();if(asking)return;const input=document.getElementById('ask-text'),text=input.value.trim();if(!text)return;if(!questionAttempt || questionAttempt.text!==text)questionAttempt={id:crypto.randomUUID().replaceAll('-',''),text};asking=true;input.disabled=true;document.getElementById('ask-send').disabled=true;document.getElementById('ask-status').textContent='Codex 正在只读回答…';
+ try{const response=await fetch('questions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(questionAttempt),signal:AbortSignal.timeout(105000)});if(!response.ok)throw new Error(await response.text());const data=await response.json();if(data.entries?.[0]?.state==='failed'){questionAttempt=null;throw new Error(data.entries[0].answer);}input.value='';questionAttempt=null;saveDraft();document.getElementById('ask-status').textContent='已回答，仅在问答视图展示（共享模型上下文）';await loadQuestions();}
+ catch(error){document.getElementById('ask-status').textContent=error.message;}finally{asking=false;input.disabled=false;document.getElementById('ask-send').disabled=!lastState?.askReady;}
+});
+
+document.getElementById('ask-text').addEventListener('input',saveDraft);
+
+function applyQuestionView(){
+ const allowed=lastState?.userRole && lastState.userRole!=='visitor';
+ if(!allowed)questionView=false;
+ document.getElementById('questions-panel').hidden=!questionView;
+ for(const selector of ['#answers','#history-search','#search-results','#filter-label','.intro','#empty','#load-history','#queue-panel','.composer-wrap']){
+  const el=document.querySelector(selector);if(el)el.classList.toggle('question-view-hidden',questionView);
+ }
+ document.getElementById('main-view').setAttribute('aria-pressed',String(!questionView));document.getElementById('question-view').setAttribute('aria-pressed',String(questionView));
+ const isMember=lastState?.userRole==='roommate';document.getElementById('question-member').hidden=!isMember;document.getElementById('question-member-label').hidden=!isMember;
+}
+document.getElementById('main-view').onclick=()=>{questionView=false;applyQuestionView();};
+document.getElementById('question-view').onclick=()=>{questionView=true;applyQuestionView();const panel=document.getElementById('questions-panel');if(panel.open)loadQuestions();else panel.open=true;};
+document.getElementById('question-member').onchange=event=>{questionMember=event.target.value;loadQuestions();};

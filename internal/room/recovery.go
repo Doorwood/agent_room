@@ -58,6 +58,9 @@ func (c *Coordinator) setStatus(ctx context.Context, status RoomStatus) error {
 }
 
 func (c *Coordinator) recover(ctx context.Context) error {
+	if c.question != nil {
+		return errors.New("只读问答尚未结束")
+	}
 	c.threadReady = false
 	if c.threadCreationUncertain {
 		c.state.status = RoomThreadNeedsRepair
@@ -175,8 +178,23 @@ func (c *Coordinator) validThread(thread ThreadSnapshot, id ThreadID) bool {
 }
 func (c *Coordinator) reconcileHistory(ctx context.Context, histories ...ThreadSnapshot) error {
 	terminal := RequestState("")
+	hidden := map[TurnID]bool{}
+	if journal, ok := c.repository.(PrivateTurnJournal); ok {
+		var turns []TurnSnapshot
+		for _, history := range histories {
+			turns = append(turns, history.Turns...)
+		}
+		var err error
+		hidden, err = journal.PrivateTurns(ctx, c.roomID, c.state.threadID, turns)
+		if err != nil {
+			return err
+		}
+	}
 	for _, history := range histories {
 		for _, turn := range history.Turns {
+			if hidden[turn.ID] {
+				continue
+			}
 			for _, item := range turn.Items {
 				durable, err := c.repository.RecordCompletedItem(ctx, c.roomID, item)
 				if err != nil {

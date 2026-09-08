@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -69,5 +70,27 @@ func TestHistoryPagesAllEventsAndArchivedProgress(t *testing.T) {
 	page, _, err := w.historyPage(0)
 	if err != nil || len(page) != 0 {
 		t.Fatal("room history leaked", err)
+	}
+}
+
+func TestSearchIncludesHistoryOutsideMemoryTail(t *testing.T) {
+	w, err := Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	for i := 1; i <= 160; i++ {
+		text := "ordinary"
+		if i == 1 {
+			text = "needle 最早的问题"
+		}
+		if err = w.add(Answer{Seq: uint64(i), Role: "user", Text: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := httptest.NewRecorder()
+	w.serve(out, httptest.NewRequest("GET", w.URL()+"search?q=needle", nil))
+	if out.Code != 200 || !strings.Contains(out.Body.String(), "最早的问题") {
+		t.Fatal(out.Code, out.Body.String())
 	}
 }

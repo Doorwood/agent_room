@@ -26,7 +26,7 @@ import (
 
 func isNetworkCommand(s string) bool {
 	switch s {
-	case "host", "join", "answers", "requests", "approve", "deny", "revoke", "session":
+	case "host", "join", "answers", "requests", "approve", "deny", "revoke", "role", "session":
 		return true
 	}
 	return false
@@ -42,6 +42,8 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 		case "join", "answers":
 			fmt.Fprintf(diag, "Usage: agent_room %s HOST_IP SESSION_ID --name YOUR_NAME\nExample: agent_room %s 192.168.1.10:7443 COMPLETE_SESSION_ID --name alice\n", args[0], args[0])
 			fmt.Fprintln(diag, "Copy the complete session_id from the host. First connection requires host approval. For room management: agent_room dashboard")
+		case "approve", "role":
+			fmt.Fprintf(diag, "Usage: agent_room %s REQUEST_ID --role roommate|visitor|asker [--state DIR]\n", args[0])
 		case "host":
 			fmt.Fprintln(diag, "Usage: agent_room host PROJECT\nExample: agent_room host .")
 		default:
@@ -51,6 +53,10 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 	}
 	address := "0.0.0.0:" + network.DefaultPort
 	name := ""
+	role := ""
+	if args[0] == "approve" || args[0] == "role" {
+		fs.StringVar(&role, "role", "", "roommate | visitor | asker (host-assigned)")
+	}
 	advertise := ""
 	answerView, noOpen := false, false
 	if args[0] != "join" && args[0] != "answers" {
@@ -75,7 +81,7 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 		return 2
 	}
 	usage := func() int {
-		fmt.Fprintln(diag, "usage: agent_room host [--state DIR] [--listen IP:PORT] PROJECT\n       agent_room join IP SESSION_ID --name NAME [--answers]\n       agent_room answers IP SESSION_ID --name NAME [--no-open]\n       agent_room requests|session [--state DIR]\n       agent_room approve|deny|revoke REQUEST_ID [--state DIR]")
+		fmt.Fprintln(diag, "usage: agent_room host [--state DIR] [--listen IP:PORT] PROJECT\n       agent_room join IP SESSION_ID --name NAME [--answers]\n       agent_room answers IP SESSION_ID --name NAME [--no-open]\n       agent_room requests|session [--state DIR]\n       agent_room approve|role REQUEST_ID --role roommate|visitor|asker [--state DIR]\n       agent_room deny|revoke REQUEST_ID [--state DIR]")
 		return 2
 	}
 	switch args[0] {
@@ -135,7 +141,7 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 		}
 		state, err = resolveState(ctx, state, ".")
 		if err == nil {
-			err = network.Manage(ctx, filepath.Join(state, "private"), args[0], id, out)
+			err = network.ManageRole(ctx, filepath.Join(state, "private"), args[0], id, role, out)
 		}
 	}
 	if err != nil {
@@ -156,7 +162,7 @@ func interspersed(args []string) []string {
 		if len(a) > 1 && a[0] == '-' {
 			flags = append(flags, a)
 			switch a {
-			case "--state", "--listen", "--advertise", "--name", "-state", "-listen", "-advertise", "-name":
+			case "--role", "-role", "--state", "--listen", "--advertise", "--name", "-state", "-listen", "-advertise", "-name":
 				if i+1 < len(args) {
 					i++
 					flags = append(flags, args[i])
@@ -292,6 +298,9 @@ func runJoinView(ctx context.Context, host, session, name string, view, readOnly
 		// Every new browser view replays task ownership independently of the terminal cursor.
 		deps.Cursors = &client.ReplayCursors{}
 		window.EnableUploads(launcher.Upload)
+		window.EnableDownloads(launcher.Download)
+		window.EnableQuestions(launcher.Query)
+		window.DraftDirectory(filepath.Join(cfgRoot, "agent_room", "drafts"))
 		window.Metadata(address, session, name)
 		deps.OnAnswer = window.Add
 		deps.OnEvent = window.Event
@@ -299,8 +308,12 @@ func runJoinView(ctx context.Context, host, session, name string, view, readOnly
 		deps.Submissions = window.EnableChat()
 		deps.OnRoom = window.Room
 		deps.OnActiveTurn = window.ActiveTurn
+		deps.OnQueue = window.Queue
 		deps.OnConnection = func(connected bool) {
 			window.Connection(connected)
+			if connected {
+				window.RefreshRole(ctx)
+			}
 		}
 		if !noOpen {
 			if err := openAnswerWindow(ctx, window.URL()); err != nil {

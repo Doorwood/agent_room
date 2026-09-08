@@ -25,6 +25,7 @@ type coordinatorState struct {
 }
 
 type Coordinator struct {
+	question                *privateQuestion
 	roomID                  RoomID
 	projectRoot             string
 	repository              Repository
@@ -155,6 +156,10 @@ func (c *Coordinator) send(ctx context.Context, command any) error {
 
 func (c *Coordinator) handleCommand(command any) {
 	switch cmd := command.(type) {
+	case questionCommand:
+		c.startQuestion(cmd)
+	case cancelQuestionCommand:
+		c.cancelQuestion(context.Background(), cmd.id)
 	case resolveCommand:
 		cmd.res <- c.resolve(cmd.ctx, cmd.actor, cmd.input)
 	case recoverCommand:
@@ -193,7 +198,7 @@ func (c *Coordinator) handleSubmit(ctx context.Context, actor Actor, input Submi
 }
 
 func (c *Coordinator) dispatchNext(ctx context.Context) error {
-	if c.state.status != RoomReady || c.state.active != nil || len(c.state.pendingControls) != 0 || len(c.state.queue) == 0 {
+	if c.question != nil || c.state.status != RoomReady || c.state.active != nil || len(c.state.pendingControls) != 0 || len(c.state.queue) == 0 {
 		return nil
 	}
 	next := c.state.queue[0]
@@ -312,6 +317,9 @@ func (c *Coordinator) finishControl(ctx context.Context, got Acceptance, outcome
 }
 
 func (c *Coordinator) handleAgentEvent(ctx context.Context, event AgentEvent) {
+	if c.questionEvent(ctx, event) {
+		return
+	}
 	switch event.Kind {
 	case "item-delta", "item-completed":
 		turnID := event.TurnID

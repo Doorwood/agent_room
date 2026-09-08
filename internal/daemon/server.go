@@ -245,3 +245,14 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
+
+// Question is reachable only through the authenticated ask-role network path.
+func (s *Server) Question(ctx context.Context, actor room.Actor, id room.ClientMessageID, text string) (room.QuestionAnswer, error) {
+	q, ok := s.deps.Coordinator.(interface {
+		Question(context.Context, room.Actor, room.ClientMessageID, string) (room.QuestionAnswer, error)
+	})
+	if !ok {
+		return room.QuestionAnswer{}, errors.New("Host 不支持只读问答")
+	}
+	return q.Question(ctx, actor, id, text)
+}

@@ -17,12 +17,12 @@ func TestOpenUpgradesRealVersionOneDatabaseWithoutDataLoss(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertMigrationVersion(t, s, 2, 2)
+	assertMigrationVersion(t, s, schemaVersion, schemaVersion)
 	var roomVersion int
 	if err := s.db.QueryRow("SELECT schema_version FROM rooms WHERE id = 'team'").Scan(&roomVersion); err != nil {
 		t.Fatal(err)
 	}
-	if roomVersion != 2 {
+	if roomVersion != schemaVersion {
 		t.Fatalf("room schema version=%d", roomVersion)
 	}
 	wantCounts := map[string]int{
@@ -78,7 +78,7 @@ func TestOpenUpgradesRealVersionOneDatabaseWithoutDataLoss(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	assertMigrationVersion(t, s, 2, 2)
+	assertMigrationVersion(t, s, schemaVersion, schemaVersion)
 	if got := tableCount(t, s, "messages"); got != 3 {
 		t.Fatalf("idempotent reopen changed messages: %d", got)
 	}
@@ -87,12 +87,12 @@ func TestOpenUpgradesRealVersionOneDatabaseWithoutDataLoss(t *testing.T) {
 func TestFreshDatabaseAppliesEveryMigration(t *testing.T) {
 	s := openTestStore(t)
 	seedRoom(t, s)
-	assertMigrationVersion(t, s, 2, 2)
+	assertMigrationVersion(t, s, schemaVersion, schemaVersion)
 	var roomVersion int
 	if err := s.db.QueryRow("SELECT schema_version FROM rooms WHERE id = 'team'").Scan(&roomVersion); err != nil {
 		t.Fatal(err)
 	}
-	if roomVersion != 2 {
+	if roomVersion != schemaVersion {
 		t.Fatalf("room schema version=%d", roomVersion)
 	}
 }

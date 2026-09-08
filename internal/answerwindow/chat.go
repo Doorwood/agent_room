@@ -60,9 +60,17 @@ func (w *Window) Event(e room.DurableEvent) error {
 	if e.Kind == "message/accepted" {
 		ack = "已接收，等待模型处理。"
 	}
-	return w.add(Answer{Ack: ack, Seq: uint64(e.Seq), Text: body.Body, Role: "user", UID: e.ActorUID, Kind: body.Kind, ClientID: body.ID, Time: e.CreatedAt.Format(time.RFC3339)})
+	text, files := splitAttachments(body.Body)
+	return w.add(Answer{Attachments: files, Ack: ack, Seq: uint64(e.Seq), Text: text, Role: "user", UID: e.ActorUID, Kind: body.Kind, ClientID: body.ID, Time: e.CreatedAt.Format(time.RFC3339)})
 }
 func (w *Window) post(out http.ResponseWriter, r *http.Request) {
+	w.mu.Lock()
+	role := w.userRole
+	w.mu.Unlock()
+	if role == "visitor" || role == "asker" {
+		http.Error(out, "此身份不能向主会话提交或控制任务", 403)
+		return
+	}
 	if r.Header.Get("Origin") != "http://"+r.Host {
 		http.Error(out, "same-origin request required", http.StatusForbidden)
 		return

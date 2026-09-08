@@ -132,7 +132,7 @@ func TestOpenConfiguresSQLiteAndInitializeRoomIsOneShot(t *testing.T) {
 	if err := s.db.QueryRow("SELECT MAX(version), count(*) FROM schema_migrations").Scan(&version, &migrationCount); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 || migrationCount != 2 {
+	if version != schemaVersion || migrationCount != schemaVersion {
 		t.Fatalf("schema version=%d migration count=%d", version, migrationCount)
 	}
 }

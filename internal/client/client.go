@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -43,6 +44,7 @@ type Deps struct {
 	OnRoom       func(string)
 	OnProject    func(string)
 	OnActiveTurn func(string)
+	OnQueue      func(room.Snapshot)
 	OnEvent      func(room.DurableEvent) error
 	OnMembers    func([]room.Member)
 	Submissions  <-chan Submission
@@ -445,6 +447,13 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 						break
 					}
 				}
+				if e.Method == "queue" && e.Kind == protocol.KindResponse && c.deps.OnQueue != nil {
+					var snapshot room.Snapshot
+					if err := json.Unmarshal(e.Body, &snapshot); err != nil {
+						return err
+					}
+					c.deps.OnQueue(snapshot)
+				}
 				lookup := lookups[e.ID]
 				delete(lookups, e.ID)
 				if result, ok := replies[e.ID]; ok {
@@ -499,6 +508,16 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 				}
 				if !ready {
 					ready = true
+					if c.deps.OnQueue != nil {
+						env, err := request(c.deps.Random, "queue", protocol.Empty{})
+						if err != nil {
+							return err
+						}
+						lookups[env.ID] = "queue"
+						if err = send(env); err != nil {
+							return err
+						}
+					}
 					if c.deps.OnConnection != nil {
 						c.deps.OnConnection(true)
 					}
@@ -562,6 +581,16 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 						if err = c.deps.OnAnswer(d, text); err != nil {
 							return fatal(err)
 						}
+					}
+				}
+				if ready && c.deps.OnQueue != nil && (d.Kind == "message/accepted" || strings.HasPrefix(d.Kind, "turn/")) {
+					env, err := request(c.deps.Random, "queue", protocol.Empty{})
+					if err != nil {
+						return err
+					}
+					lookups[env.ID] = "queue"
+					if err = send(env); err != nil {
+						return err
 					}
 				}
 				cursor.LastAppliedSeq = *e.Seq
