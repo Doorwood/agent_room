@@ -4,6 +4,14 @@
 
 ## 安装
 
+有 Node.js 20+ 时可直接安装 npm 包（命令名仍是 `agent_room`）：
+
+```sh
+npm install -g menmu-agent-room@latest
+```
+
+包内包含 macOS/Linux x64/arm64 二进制，无需 Go 或安装脚本。
+
 解压安装包后执行：
 
 ```sh
@@ -64,7 +72,14 @@ export PATH="$HOME/.local/share/agent_room/codex/node_modules/.bin:$PATH"
 
 ## 重启与多个 session
 
-host 默认监听 7443，状态保存在 `~/.local/share/agent_room/host`。Ctrl+C 正常停止；在同一项目重新执行 `agent_room host .` 会恢复相同 session 和成员。长期运行可放在 tmux 中。客户端再次执行原来的 join 命令，不必重新审批。
+状态默认按 Git 项目隔离在 `~/.local/share/agent_room/hosts` 下。管理命令从同一项目目录执行，或明确传入 `--state`。host 优先复用保存的端口；新会话先尝试 7443，再自动选择空闲端口；显式 `--listen` 不会自动换端口。Ctrl+C 正常停止；在同一项目重新执行 `agent_room host .` 会恢复相同 session 和成员。长期运行可放在 tmux 中。客户端再次执行原来的 join 命令，不必重新审批。
+
+## 可选浏览器窗口
+
+在参与者本机运行 `agent_room join HOST_IP SESSION_ID --name alice --answers`，
+或另开终端运行 `agent_room answers HOST_IP SESSION_ID --name alice`。
+客户端会打印本机 Browser URL，支持发消息、共享历史、成员筛选和按任务展示进度。
+URL 含随机访问标识，请勿公开；保持该客户端运行。纯终端用法不变。
 
 每个 host 进程服务一个项目。另一个项目使用独立状态目录和端口：
 

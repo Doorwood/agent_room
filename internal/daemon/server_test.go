@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -291,6 +292,18 @@ func TestShutdownReleasesBlockedWriter(t *testing.T) {
 	c := dial(t, path)
 	hello(t, c)
 	f.hub.PublishTransient(room.TransientEvent{Revision: 1, Kind: "delta", Delta: strings.Repeat("x", 4<<20)})
+	// Wait for encoding to finish and the large frame to reach the socket.
+	// Leave its body unread so shutdown must release the blocked writer.
+	if err := c.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var prefix [4]byte
+	if _, err := io.ReadFull(c, prefix[:]); err != nil {
+		t.Fatal(err)
+	}
+	if binary.BigEndian.Uint32(prefix[:]) < 4<<20 {
+		t.Fatal("expected the large frame before testing writer shutdown")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := s.Shutdown(ctx); err != nil {

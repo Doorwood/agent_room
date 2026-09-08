@@ -10,6 +10,15 @@ Create one project session on a Linux host. Participants join from macOS or Linu
 
 ## Install
 
+With Node.js 20+ and npm, install the platform-bundled CLI:
+
+```sh
+npm install -g menmu-agent-room@latest
+```
+
+This includes macOS/Linux x64/arm64 native binaries and verifies their checksums
+without install scripts or a Go compiler. See [npm usage](npm/README.md).
+
 Unpack the binary bundle and run:
 
 ```sh
@@ -69,7 +78,7 @@ Revocation disconnects that member's current clients and rejects further connect
 
 Ctrl+C stops the host cleanly. Run it in tmux to keep it alive after disconnecting. Start it with the same project and state to reuse the session and membership approvals. Client credentials and replay positions persist locally.
 
-Default listener: port 7443. Default state: `~/.local/share/agent_room/host`, outside the project. For another session use a different state directory and port:
+Default state is isolated by canonical Git project under `~/.local/share/agent_room/hosts`, outside the project. Run management commands from the same project or pass `--state`. The host reuses its saved port; a new host tries 7443 and then an available port. An explicit `--listen` disables automatic fallback. For an explicit session directory and port:
 
 ```sh
 agent_room host /path/to/other-project --state /absolute/other-state --listen 0.0.0.0:7444
@@ -88,11 +97,22 @@ go test ./...
 go test -race ./...
 go vet ./...
 sh scripts/package.sh
+npm run test:npm
+node --test internal/answerwindow/group.test.mjs
+npm run pack:npm
 ```
 
 Packaging writes `dist/agent-room-bundle.tar.gz`. No publication occurs automatically. Legacy `agent_romm` SSH commands remain supported; see [legacy core notes](docs/legacy-core-mvp.md). The Go module and source entry point retain their original `agent_romm` spelling.
 
 [中文快速使用文档](docs/QUICKSTART.zh-CN.md)
+
+## Optional local browser client
+
+Run `agent_room join HOST_IP SESSION_ID --name alice --answers`, or
+`agent_room answers HOST_IP SESSION_ID --name alice` in another terminal.
+The client prints its own local Browser URL with a random access ID; keep it
+private and keep that client running. It supports shared history, sending tasks,
+member filters, and progress grouped by task. Terminal-only usage is unchanged.
 
 ## License and contributions
 

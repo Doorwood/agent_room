@@ -12,8 +12,10 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 
 	"agent_romm/internal/admin"
+	"agent_romm/internal/answerwindow"
 	"agent_romm/internal/client"
 	"agent_romm/internal/config"
 	"agent_romm/internal/daemon"
@@ -23,42 +25,33 @@ import (
 
 func isNetworkCommand(s string) bool {
 	switch s {
-	case "host", "join", "requests", "approve", "deny", "revoke", "session":
+	case "host", "join", "answers", "requests", "approve", "deny", "revoke", "session":
 		return true
 	}
 	return false
 }
-func defaultState() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	home, err = filepath.EvalSymlinks(home)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".local", "share", "agent_room", "host"), nil
-}
 func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Dependencies) int {
-	state, err := defaultState()
-	if err != nil {
-		fmt.Fprintln(diag, err)
-		return 1
-	}
+	var state string
+	var err error
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	fs.SetOutput(diag)
 	address := "0.0.0.0:" + network.DefaultPort
 	name := ""
 	advertise := ""
-	if args[0] != "join" {
-		fs.StringVar(&state, "state", state, "persistent host state (use a different directory for each session)")
+	answerView, noOpen := false, false
+	if args[0] != "join" && args[0] != "answers" {
+		fs.StringVar(&state, "state", "", "host state directory (default: current Git project session)")
 	}
 	if args[0] == "host" {
-		fs.StringVar(&address, "listen", address, "host listen IP:port")
+		fs.StringVar(&address, "listen", address, "host listen IP:port (default: saved port, then 7443 or an available port)")
 		fs.StringVar(&advertise, "advertise", "", "address to display to participants")
 	}
-	if args[0] == "join" {
+	if args[0] == "join" || args[0] == "answers" {
 		fs.StringVar(&name, "name", "", "your display name (no system account required)")
+		fs.BoolVar(&noOpen, "no-open", false, "print the answer window URL without opening a browser")
+		if args[0] == "join" {
+			fs.BoolVar(&answerView, "answers", false, "open a clean answer window alongside this terminal")
+		}
 	}
 	// Permit flags before or after positional arguments for the documented short commands.
 	if err = fs.Parse(interspersed(args[1:])); err != nil {
@@ -68,7 +61,7 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 		return 2
 	}
 	usage := func() int {
-		fmt.Fprintln(diag, "usage: agent_room host [--state DIR] [--listen IP:PORT] PROJECT\n       agent_room join IP SESSION_ID --name NAME\n       agent_room requests|session [--state DIR]\n       agent_room approve|deny|revoke REQUEST_ID [--state DIR]")
+		fmt.Fprintln(diag, "usage: agent_room host [--state DIR] [--listen IP:PORT] PROJECT\n       agent_room join IP SESSION_ID --name NAME [--answers]\n       agent_room answers IP SESSION_ID --name NAME [--no-open]\n       agent_room requests|session [--state DIR]\n       agent_room approve|deny|revoke REQUEST_ID [--state DIR]")
 		return 2
 	}
 	switch args[0] {
@@ -76,15 +69,28 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 		if fs.NArg() != 1 {
 			return usage()
 		}
-		err = runHost(ctx, fs.Arg(0), state, address, advertise, out, diag, d)
-	case "join":
+		explicitListen := false
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "listen" {
+				explicitListen = true
+			}
+		})
+		err = runHost(ctx, fs.Arg(0), state, address, advertise, !explicitListen, out, diag, d)
+	case "join", "answers":
 		if fs.NArg() != 2 || name == "" {
 			return usage()
 		}
-		err = runJoin(ctx, fs.Arg(0), fs.Arg(1), name, out, diag, d)
+		if noOpen && !answerView && args[0] != "answers" {
+			return usage()
+		}
+		err = runJoinView(ctx, fs.Arg(0), fs.Arg(1), name, answerView || args[0] == "answers", args[0] == "answers", noOpen, out, diag, d)
 	case "session":
 		if fs.NArg() != 0 {
 			return usage()
+		}
+		state, err = resolveState(ctx, state, ".")
+		if err != nil {
+			break
 		}
 		var cfg config.RuntimeConfig
 		cfg, err = config.Read(filepath.Join(state, "private", "config.json"))
@@ -93,6 +99,12 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 			_, pin, err = network.Certificate(filepath.Join(state, "private"))
 			if err == nil {
 				fmt.Fprintf(out, "session_id: %s.%s\nproject: %s\nstate: %s\n", cfg.RoomID, pin, cfg.ProjectRoot, state)
+				endpoint, e := loadHostEndpoint(state)
+				if e == nil {
+					fmt.Fprintf(out, "Join: agent_room join %s %s.%s --name YOUR_NAME\n", endpoint.Address, cfg.RoomID, pin)
+				} else if !errors.Is(e, os.ErrNotExist) {
+					err = e
+				}
 			}
 		}
 	default:
@@ -107,7 +119,10 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 			}
 			id = fs.Arg(0)
 		}
-		err = network.Manage(ctx, filepath.Join(state, "private"), args[0], id, out)
+		state, err = resolveState(ctx, state, ".")
+		if err == nil {
+			err = network.Manage(ctx, filepath.Join(state, "private"), args[0], id, out)
+		}
 	}
 	if err != nil {
 		fmt.Fprintln(diag, client.SafeText(err.Error()))
@@ -139,7 +154,7 @@ func interspersed(args []string) []string {
 	}
 	return append(append(flags, "--"), positionals...)
 }
-func runHost(ctx context.Context, project, state, address, advertise string, out, diag io.Writer, d Dependencies) error {
+func runHost(ctx context.Context, project, state, address, advertise string, automaticListen bool, out, diag io.Writer, d Dependencies) error {
 	if err := d.CheckPlatform(); err != nil {
 		return err
 	}
@@ -147,18 +162,20 @@ func runHost(ctx context.Context, project, state, address, advertise string, out
 	if d.CodexExecutable == "" {
 		return errors.New("Codex executable not found on PATH; install Codex and make `codex --version` work in this environment before starting the host")
 	}
-	root, err := filepath.Abs(project)
+	root, err := canonicalProject(ctx, project)
 	if err != nil {
 		return err
 	}
-	root, err = filepath.EvalSymlinks(root)
+	state, err = resolveState(ctx, state, root)
 	if err != nil {
 		return err
 	}
-	if !filepath.IsAbs(state) {
-		state, err = filepath.Abs(state)
-		if err != nil {
-			return err
+	if automaticListen {
+		endpoint, e := loadHostEndpoint(state)
+		if e == nil {
+			address = endpoint.Listen
+		} else if !errors.Is(e, os.ErrNotExist) {
+			return e
 		}
 	}
 	cfgPath := filepath.Join(state, "private", "config.json")
@@ -187,18 +204,35 @@ func runHost(ctx context.Context, project, state, address, advertise string, out
 		return errors.New("this state belongs to a different project; use --state with a new directory")
 	}
 	return serveNetwork(ctx, state, diag, d, func(cfg config.RuntimeConfig, st *store.Store, server *daemon.Server) (*network.Server, error) {
-		remote, err := network.Start(ctx, address, filepath.Join(state, "private"), cfg.RoomID, st, server)
+		var remote *network.Server
+		var boundAddress string
+		err := startWithPortFallback(address, automaticListen && advertise == "", func(candidate string) error {
+			var e error
+			remote, e = network.Start(ctx, candidate, filepath.Join(state, "private"), cfg.RoomID, st, server)
+			boundAddress = candidate
+			return e
+		})
 		if err != nil {
 			return nil, err
 		}
 		if advertise == "" {
 			advertise = advertisedAddress(remote.Address())
 		}
-		fmt.Fprintf(out, "Host ready\nproject: %s\nlisten: %s\nsession_id: %s\nJoin: agent_room join %s %s --name YOUR_NAME\nReview: agent_room requests --state %s\n", root, remote.Address(), remote.SessionID(), advertise, remote.SessionID(), state)
+		host, _, _ := net.SplitHostPort(boundAddress)
+		_, port, _ := net.SplitHostPort(remote.Address())
+		endpoint := hostEndpoint{Listen: net.JoinHostPort(host, port), Address: advertise}
+		if err = saveHostEndpoint(state, endpoint); err != nil {
+			remote.Close()
+			return nil, err
+		}
+		fmt.Fprintf(out, "Host ready\nproject: %s\nlisten: %s\nsession_id: %s\nJoin: agent_room join %s %s --name YOUR_NAME\nReview: agent_room requests --state %s\nBrowser on your computer: agent_room answers %s %s --name YOUR_NAME\nThe local client prints the Browser URL after starting.\n", root, remote.Address(), remote.SessionID(), advertise, remote.SessionID(), state, advertise, remote.SessionID())
 		return remote, nil
 	})
 }
 func runJoin(ctx context.Context, host, session, name string, out, diag io.Writer, d Dependencies) error {
+	return runJoinView(ctx, host, session, name, false, false, false, out, diag, d)
+}
+func runJoinView(ctx context.Context, host, session, name string, view, readOnly, noOpen bool, out, diag io.Writer, d Dependencies) error {
 	address, err := network.Address(host)
 	if err != nil {
 		return err
@@ -217,9 +251,62 @@ func runJoin(ctx context.Context, host, session, name string, out, diag io.Write
 	}
 	deps := d.Client
 	deps.Launcher = launcher
+	if !view {
+		fmt.Fprintln(out, "Browser: add --answers to this join command, or run agent_room answers HOST_IP SESSION_ID --name YOUR_NAME in another terminal.")
+	}
+	if view {
+		window, err := answerwindow.Start()
+		if err != nil {
+			return err
+		}
+		defer window.Close()
+		fmt.Fprintf(out, "\nBrowser URL: %s\nURL format: http://127.0.0.1:<local-port>/<random-access-id>/\nThe port and access ID are generated locally; this is not HOST_IP/session_id.\nKeep this process running; Ctrl+C closes its browser service.\n", window.URL())
+		// Every new browser view replays task ownership independently of the terminal cursor.
+		deps.Cursors = &client.ReplayCursors{}
+		window.Metadata(address, session, name)
+		deps.OnAnswer = window.Add
+		deps.OnEvent = window.Event
+		deps.OnMembers = window.Members
+		deps.Submissions = window.EnableChat()
+		deps.OnRoom = window.Room
+		deps.OnConnection = func(connected bool) {
+			if connected {
+				window.Status("已连接 · 等待完整回答")
+			} else {
+				window.Status("连接中断 · 正在重连")
+			}
+		}
+		if !noOpen {
+			if err := openAnswerWindow(ctx, window.URL()); err != nil {
+				fmt.Fprintln(diag, "Could not open a browser; open the Browser URL above.")
+			}
+		}
+	}
+	if readOnly {
+		deps.ReadOnly = false
+		deps.Cursors = &client.ReplayCursors{}
+		// Browser submissions use the typed channel; standalone mode ignores stdin.
+		reader, writer := io.Pipe()
+		defer writer.Close()
+		d.Input = reader
+		out = io.Discard
+	}
 	sum := sha256.Sum256([]byte(name))
 	target := address + "/" + session + fmt.Sprintf("/%x", sum[:8])
 	return client.New(deps).Run(ctx, target, d.Input, out, diag)
+}
+
+func openAnswerWindow(ctx context.Context, url string) error {
+	command := "xdg-open"
+	if runtime.GOOS == "darwin" {
+		command = "open"
+	}
+	cmd := exec.CommandContext(ctx, command, url)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go cmd.Wait()
+	return nil
 }
 
 func codexPath(d Dependencies) string {

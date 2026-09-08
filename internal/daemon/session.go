@@ -259,7 +259,7 @@ func (s *Server) dispatch(ctx context.Context, w sessionWriter, actor room.Actor
 			return invalid()
 		}
 		out = in
-	case "queue", "status", "who", "diff":
+	case "queue", "status", "who", "members", "diff":
 		if _, de := protocol.DecodeBody[protocol.Empty](e.Body); de != nil {
 			return invalid()
 		}
@@ -268,6 +268,14 @@ func (s *Server) dispatch(ctx context.Context, w sessionWriter, actor room.Actor
 			out, err = s.deps.Coordinator.Snapshot(ctx)
 		case "who":
 			out = s.deps.Hub.Members()
+		case "members":
+			if directory, ok := s.deps.Members.(interface {
+				ListMembers(context.Context, room.RoomID) ([]room.Member, error)
+			}); ok {
+				out, err = directory.ListMembers(ctx, s.cfg.RoomID)
+			} else {
+				out = s.deps.Hub.Members()
+			}
 		case "diff":
 			if s.deps.ProjectView == nil {
 				err = ErrConfiguration

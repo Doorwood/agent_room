@@ -54,7 +54,7 @@ func ProductionDependencies() Dependencies {
 	}}
 }
 
-const help = "agent_romm: trusted local room engine\ncommands: host, join, requests, approve, deny, revoke, session\nlegacy: init, serve, connect, bridge, repair-thread\nUse <command> --help for options.\n"
+const help = "agent_romm: trusted local room engine\ncommands: host, join, answers, requests, approve, deny, revoke, session\nlegacy: init, serve, connect, bridge, repair-thread\nUse <command> --help for options.\n"
 
 // Run returns 2 for invalid arguments, 3 for unsupported platforms, and 1 for
 // operational failures. It never resolves a Codex executable for help/parsing.
@@ -343,6 +343,21 @@ func serveNetwork(ctx context.Context, state string, diagnostics io.Writer, d De
 		return ctx.Err()
 	case <-startup.Done():
 		return startup.Err()
+	}
+	if start != nil && image.ThreadID != "" {
+		active, e := st.HasAgentActivity(startup, cfg.RoomID)
+		if e != nil {
+			return e
+		}
+		if !active {
+			if _, e = rt.ReadThread(startup, image.ThreadID); errors.Is(e, codex.ErrThreadNotFound) {
+				if _, e = st.ResetUnusedThread(startup, cfg.RoomID, image.ThreadID); e != nil {
+					return e
+				}
+			} else if e != nil {
+				return e
+			}
+		}
 	}
 	hub := daemon.NewHub(256, 16<<20)
 	logger := observability.New(diagnostics)

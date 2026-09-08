@@ -205,7 +205,7 @@ func (a *Adapter) ReadThread(ctx context.Context, threadID room.ThreadID) (room.
 	}
 	var response threadResult
 	if err := a.rpc.Call(ctx, "thread/read", threadReadParams{ThreadID: string(threadID), IncludeTurns: true}, &response); err != nil {
-		return room.ThreadSnapshot{}, stableAdapterError(err)
+		return room.ThreadSnapshot{}, readThreadError(err, threadID)
 	}
 	return a.snapshot(response.Thread, threadID)
 }

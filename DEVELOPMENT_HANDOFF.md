@@ -21,6 +21,9 @@ the previous desktop conversation is not automatically imported.
   history, reconnect replay, bounded live projection and explicit recovery.
 - Host approval/revocation; execution uses the host owner's full authority.
 - Installation and multi-platform packaging scripts are included.
+- Optional local browser clients show shared conversations, member filters and
+  task progress. Host state is isolated per project. The npm package is
+  `menmu-agent-room`, with platform-bundled binaries and checksum verification.
 - Exact reviewed Codex runtime pin: 0.153.4. Every host startup resolves Codex
   from the current PATH; model and reasoning effort come from its environment.
   Do not silently relax protocol

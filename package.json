@@ -1,0 +1,10 @@
+{
+  "name": "agent-room-workspace",
+  "version": "0.1.1",
+  "private": true,
+  "scripts": {
+    "test:npm": "node --test npm/*.test.cjs",
+    "pack:npm": "node scripts/package-npm.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

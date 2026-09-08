@@ -5,6 +5,7 @@ import (
 	"agent_romm/internal/protocol"
 	"agent_romm/internal/room"
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -32,10 +33,17 @@ func (realClock) NewTimer(d time.Duration) Timer { return realTimer{time.NewTime
 func (t realTimer) C() <-chan time.Time          { return t.Timer.C }
 
 type Deps struct {
-	Launcher Launcher
-	Clock    Clock
-	Random   io.Reader
-	Cursors  CursorStore
+	Launcher     Launcher
+	Clock        Clock
+	Random       io.Reader
+	Cursors      CursorStore
+	ReadOnly     bool
+	OnAnswer     func(room.DurableEvent, string) error
+	OnConnection func(bool)
+	OnRoom       func(string)
+	OnEvent      func(room.DurableEvent) error
+	OnMembers    func([]room.Member)
+	Submissions  <-chan Submission
 }
 type Client struct{ deps Deps }
 
@@ -123,6 +131,7 @@ func (c *Client) Run(parent context.Context, target string, input io.ReadCloser,
 	p := projection{partial: make(map[itemKey]string)}
 	pending := make(map[string]protocol.Envelope)
 	var order []string
+	replies := make(map[string][]chan error)
 	launcher := c.deps.Launcher
 	if launcher == nil {
 		launcher = SSHLauncher{Stderr: diagnostics}
@@ -132,7 +141,10 @@ func (c *Client) Run(parent context.Context, target string, input io.ReadCloser,
 		if ctx.Err() != nil {
 			return nil
 		}
-		err = c.session(ctx, launcher, target, queue, output, diagnostics, &cursor, &probe, &p, pending, &order)
+		err = c.session(ctx, launcher, target, queue, output, diagnostics, &cursor, &probe, &p, pending, &order, replies)
+		if c.deps.OnConnection != nil {
+			c.deps.OnConnection(false)
+		}
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -187,7 +199,7 @@ func (c *Client) jitter(base time.Duration) (time.Duration, error) {
 	}
 	return base/2 + time.Duration(binary.BigEndian.Uint64(b[:])%uint64(base/2+1)), nil
 }
-func (c *Client) session(ctx context.Context, launcher Launcher, target string, queue *lineInput, out, diag io.Writer, cursor *Cursor, probe *bool, p *projection, pending map[string]protocol.Envelope, order *[]string) error {
+func (c *Client) session(ctx context.Context, launcher Launcher, target string, queue *lineInput, out, diag io.Writer, cursor *Cursor, probe *bool, p *projection, pending map[string]protocol.Envelope, order *[]string, replies map[string][]chan error) error {
 	conn, err := launcher.Start(ctx, target)
 	if err != nil {
 		return err
@@ -231,6 +243,7 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 		}
 	}()
 	defer func() { stop(); conn.Close(); <-readerDone; <-writerDone }()
+	lookups := make(map[string]string)
 	send := func(e protocol.Envelope) error {
 		select {
 		case writes <- e:
@@ -257,8 +270,12 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 	defer func() { timer.Stop() }()
 	for {
 		var input <-chan string
+		var submissions <-chan Submission
 		if ready {
 			input = queue.lines
+			if !c.deps.ReadOnly {
+				submissions = c.deps.Submissions
+			}
 		}
 		select {
 		case <-queue.overflow:
@@ -281,11 +298,60 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 					return err
 				}
 				lastSend = now
+				if c.deps.OnMembers != nil {
+					env, err := request(c.deps.Random, "members", protocol.Empty{})
+					if err != nil {
+						return fatal(err)
+					}
+					if env.Method == "members" {
+						lookups[env.ID] = "members"
+					}
+					if err = send(env); err != nil {
+						return err
+					}
+				}
 			}
 			timer = c.deps.Clock.NewTimer(20 * time.Second)
+		case submission := <-submissions:
+			if submission.Context.Err() != nil {
+				resolveSubmission(submission.Result, submission.Context.Err())
+				continue
+			}
+			env, err := submission.envelope()
+			if err != nil {
+				resolveSubmission(submission.Result, err)
+				continue
+			}
+			if old, ok := pending[env.ID]; ok {
+				if !bytes.Equal(old.Body, env.Body) {
+					resolveSubmission(submission.Result, errors.New("message ID already used for different text"))
+					continue
+				}
+			} else {
+				if len(pending) >= 128 {
+					resolveSubmission(submission.Result, errors.New("too many pending messages"))
+					continue
+				}
+				orderValue := append(*order, env.ID)
+				*order = orderValue
+			}
+			pending[env.ID] = env
+			if len(replies[env.ID]) >= 32 {
+				resolveSubmission(submission.Result, errors.New("too many concurrent retries"))
+				continue
+			}
+			replies[env.ID] = append(replies[env.ID], submission.Result)
+			if err := send(env); err != nil {
+				return err
+			}
+			lastSend = c.deps.Clock.Now()
 		case line, ok := <-input:
 			if !ok {
 				return errInputEOF
+			}
+			if c.deps.ReadOnly {
+				fmt.Fprintln(diag, "Answer window is read-only; submit work from the original terminal.")
+				continue
 			}
 			cmd, err := ParseCommand(line)
 			if err != nil {
@@ -300,6 +366,9 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 			if mutation {
 				pending[env.ID] = env
 				*order = append(*order, env.ID)
+			}
+			if env.Method == "members" {
+				lookups[env.ID] = "members"
 			}
 			if err = send(env); err != nil {
 				return err
@@ -358,11 +427,49 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 					return fatal(err)
 				}
 				welcomed = true
+				if c.deps.OnRoom != nil {
+					c.deps.OnRoom(w.RoomID)
+				}
 				continue
 			}
 			if e.Kind == protocol.KindResponse || e.Kind == protocol.KindError {
 				delete(pending, e.ID)
-				if e.Method != "heartbeat" && e.Method != "ack" {
+				for i, id := range *order {
+					if id == e.ID {
+						*order = append((*order)[:i], (*order)[i+1:]...)
+						break
+					}
+				}
+				lookup := lookups[e.ID]
+				delete(lookups, e.ID)
+				if result, ok := replies[e.ID]; ok {
+					var resultErr error
+					if e.Kind == protocol.KindError {
+						resultErr = errors.New("host rejected this message; check membership and session status")
+					}
+					for _, waiter := range result {
+						resolveSubmission(waiter, resultErr)
+					}
+					delete(replies, e.ID)
+				}
+				if (e.Method == "who" || e.Method == "members") && e.Kind == protocol.KindResponse && c.deps.OnMembers != nil {
+					var members []room.Member
+					if err := json.Unmarshal(e.Body, &members); err != nil {
+						return err
+					}
+					c.deps.OnMembers(members)
+				}
+				if lookup == "members" && e.Kind == protocol.KindError {
+					fallback, err := request(c.deps.Random, "who", protocol.Empty{})
+					if err != nil {
+						return fatal(err)
+					}
+					lookups[fallback.ID] = "who"
+					if err := send(fallback); err != nil {
+						return err
+					}
+				}
+				if lookup == "" && e.Method != "heartbeat" && e.Method != "ack" {
 					fmt.Fprintf(out, "[%s] %s\n", SafeText(e.Method), SafeText(string(e.Body)))
 				}
 				continue
@@ -384,10 +491,28 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 				}
 				if !ready {
 					ready = true
+					if c.deps.OnConnection != nil {
+						c.deps.OnConnection(true)
+					}
+					if c.deps.OnMembers != nil {
+						env, err := request(c.deps.Random, "members", protocol.Empty{})
+						if err != nil {
+							return fatal(err)
+						}
+						if env.Method == "members" {
+							lookups[env.ID] = "members"
+						}
+						if err = send(env); err != nil {
+							return err
+						}
+					}
 					kept := (*order)[:0]
 					for _, id := range *order {
 						if env, ok := pending[id]; ok {
 							kept = append(kept, id)
+							if env.Method == "members" {
+								lookups[env.ID] = "members"
+							}
 							if err = send(env); err != nil {
 								return err
 							}
@@ -411,6 +536,22 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 				}
 				if err = p.durable(d, out); err != nil {
 					return fatal(err)
+				}
+				if c.deps.OnEvent != nil {
+					if err := c.deps.OnEvent(d); err != nil {
+						return fatal(err)
+					}
+				}
+				if c.deps.OnAnswer != nil {
+					text, err := answerText(d)
+					if err != nil {
+						return fatal(err)
+					}
+					if text != "" {
+						if err = c.deps.OnAnswer(d, text); err != nil {
+							return fatal(err)
+						}
+					}
 				}
 				cursor.LastAppliedSeq = *e.Seq
 				if err = c.deps.Cursors.Save(*cursor); err != nil {
