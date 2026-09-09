@@ -355,6 +355,13 @@ func runJoinView(ctx context.Context, host, session, name string, view, readOnly
 		window.EnableTasks(launcher.Tasks)
 		window.DraftDirectory(filepath.Join(cfgRoot, "agent_room", "drafts"))
 		window.Metadata(address, session, name)
+		previousProject := deps.OnProject
+		deps.OnProject = func(project string) {
+			window.Project(project)
+			if previousProject != nil {
+				previousProject(project)
+			}
+		}
 		deps.OnAnswer = window.Add
 		deps.OnEvent = window.Event
 		deps.OnMembers = window.Members

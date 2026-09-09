@@ -13,7 +13,7 @@ test('dashboard connects, opens a safe chat, sends, disconnects and reconnects',
  const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.goto(url);
  await expect(page.getByRole('heading',{name:'我的 Rooms'})).toBeVisible();
- await expect(page.locator('#version')).toHaveText('本机客户端 v1.0.8');
+ await expect(page.locator('#version')).toHaveText('本机客户端 v1.0.9');
  await page.getByRole('button',{name:'连接',exact:true}).click();
  await expect(page.locator('.status')).toHaveText('已连接',{timeout:10000});
  await expect(page.locator('.room h3')).toHaveText('demo-project');
@@ -21,7 +21,10 @@ test('dashboard connects, opens a safe chat, sends, disconnects and reconnects',
  await expect(page.locator('.details-text')).toContainText('项目名称：demo-project');
  await expect(page.locator('.details-text')).toContainText('项目路径：/workspace/demo-project');
  const popupPromise=page.waitForEvent('popup');await page.getByRole('link',{name:'打开对话 ↗'}).click();const chat=await popupPromise;
- await expect(chat.locator('#client-version')).toHaveText('本机客户端 v1.0.8');
+ await expect(chat.locator('#client-version')).toHaveText('本机客户端 v1.0.9');
+ await expect(chat.locator('#project-name')).toHaveText('demo-project');
+ await expect(chat.locator('#header-project-name')).toHaveText('demo-project');
+ await expect(chat).toHaveTitle('demo-project · agent_room');
  await expect(chat.locator('.answer-text h2')).toHaveText('已准备好');
  await expect(chat.locator('.answer-text table')).toBeVisible();
  await expect(chat.locator('.answer-text img')).toHaveCount(0);

@@ -1,6 +1,6 @@
 {
   "name": "menmu-agent-room",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Shared Codex project sessions with host-approved members, terminal and browser clients",
   "publishConfig": {
     "access": "public",

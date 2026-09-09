@@ -79,6 +79,13 @@ function applyFilter() {
   if (!visible) document.getElementById('empty').textContent = selectedUser === null ? '等待第一条消息' : '当前保留记录中没有该成员的对话';
 }
 function sidebar(state) {
+  const projectName = state.projectName || '项目名称待同步';
+  for (const id of ['project-name','header-project-name']) {
+    const node = document.getElementById(id);
+    node.textContent = projectName;
+    node.title = projectName;
+  }
+  document.title = projectName + ' · agent_room';
   document.getElementById('host-address').textContent = state.host || '';
   document.getElementById('session-id').textContent = state.session || '';
   document.getElementById('viewer-name').textContent = state.viewer || '';

@@ -126,6 +126,22 @@ and `~/.local/bin/agent_room-update` wrappers, and remove only
 user configuration directory to preserve host state and member credentials.
 The marked PATH block can remain if you use `~/.local/bin` for other tools.
 
+## 1.0.9 更新
+
+- 聊天页左上角显示当前项目名称，页面顶部与浏览器标签同步展示，方便区分多个项目。
+- 项目名称来自 Host 的欢迎信息；Dashboard 打开的聊天页和终端 `answers` 入口均支持，重连时同步更新。
+- 优化桌面 Dashboard 的项目卡片、连接状态、加入表单和操作层级，区分打开对话与删除 Room。
+- 统一聊天页导航、消息间距、文字对比度、输入框与授权弹窗样式。
+
+本次主要优化桌面使用体验，不改变成员权限、任务执行和个人资源授权流程。未新增数据库迁移。
+
+```sh
+npm install -g menmu-agent-room@1.0.9 --registry=https://registry.npmjs.org/
+agent_room --version
+```
+
+持久化安装用户执行 `agent_room-update`。升级后退出并重启本机 Dashboard / 浏览器客户端，再打开对话；只刷新旧进程提供的网页不会加载新版 UI。Host 1.0.8 已提供项目名称数据，本次 UI 更新不要求中断正在执行任务的 Host。
+
 ## 1.0.8 更新
 
 - 聊天页固定导航，滚动聊天时可直接切换成员视图和查看项目任务。

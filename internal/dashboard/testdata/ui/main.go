@@ -227,6 +227,7 @@ fi
 		w.RefreshRole(ctx)
 		w.Metadata(r.Address, r.Session, r.Name)
 		w.Room("ui-room")
+		w.Project("/demo/demo-project")
 		if err := catalog.RememberProject(r.Address, r.Session, "/workspace/demo-project"); err != nil {
 			return err
 		}

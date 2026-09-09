@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,6 +67,7 @@ type Answer struct {
 	Time        string       `json:"time"`
 }
 type Window struct {
+	projectName       string
 	resource          ResourceFunc
 	resourceEnabled   bool
 	resourceRoot      string
@@ -111,6 +113,21 @@ type Window struct {
 	server       *http.Server
 	listener     net.Listener
 	path         string
+}
+
+// Project receives the project path from the authenticated Host welcome message.
+func (w *Window) Project(project string) {
+	name := ""
+	if strings.TrimSpace(project) != "" {
+		name = filepath.Base(filepath.Clean(project))
+		if name == "." || name == string(filepath.Separator) {
+			name = ""
+		}
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.projectName = client.SafeText(name)
+	w.revision++
 }
 
 func Start() (*Window, error) {
@@ -339,7 +356,8 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 			Members       []room.Member        `json:"members"`
 			ClientVersion string               `json:"clientVersion"`
 			Connected     bool                 `json:"connected"`
-		}{w.queue, w.userRole, w.askReady, w.activeTurn, w.revision, page, more, w.status, w.room, w.host, w.session, w.viewer, nil, buildinfo.Version, w.connected}
+			ProjectName   string               `json:"projectName"`
+		}{w.queue, w.userRole, w.askReady, w.activeTurn, w.revision, page, more, w.status, w.room, w.host, w.session, w.viewer, nil, buildinfo.Version, w.connected, w.projectName}
 		for uid, name := range w.names {
 			state.Members = append(state.Members, room.Member{UID: uid, Name: name})
 		}

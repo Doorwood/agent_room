@@ -39,7 +39,7 @@ function render() {
   if (room.url) {
    const link=document.createElement('a');link.className='open';link.textContent='打开对话 ↗';link.href=room.url;link.target='_blank';link.rel='noopener noreferrer';actions.append(link);
   }
-  const remove=document.createElement('button');remove.type='button';remove.className='secondary';remove.textContent='删除 Room';
+  const remove=document.createElement('button');remove.type='button';remove.className='secondary danger';remove.textContent='删除 Room';
   remove.addEventListener('click',async()=>{
    if(!confirm('从本机 Dashboard 删除此 Room？会断开本 Dashboard 的连接，保留成员身份和 host 上的项目、聊天记录。之后可重新添加。'))return;
    remove.disabled=true;
