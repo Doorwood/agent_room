@@ -2,6 +2,7 @@
 package answerwindow
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	_ "embed"
@@ -18,6 +19,7 @@ import (
 
 	"agent_romm/internal/buildinfo"
 	"agent_romm/internal/client"
+	"agent_romm/internal/personal"
 	"agent_romm/internal/room"
 )
 
@@ -35,6 +37,9 @@ var markdown []byte
 
 //go:embed vendor/marked.mjs
 var marked []byte
+
+//go:embed resources.mjs
+var resourceScript []byte
 
 //go:embed tasks.mjs
 var taskScript []byte
@@ -61,6 +66,19 @@ type Answer struct {
 	Time        string       `json:"time"`
 }
 type Window struct {
+	resource          ResourceFunc
+	resourceEnabled   bool
+	resourceRoot      string
+	resourceCancel    context.CancelFunc
+	personalCancel    context.CancelFunc
+	personalDone      chan struct{}
+	personalRunCancel context.CancelFunc
+	personalClient    string
+	personalPending   *personal.Request
+	personalStatus    string
+	personalAccount   string
+	personalGit       *personal.GitIdentity
+
 	queue        []room.QueuedMessage
 	userRole     string
 	askReady     bool
@@ -120,6 +138,24 @@ func Start() (*Window, error) {
 }
 func (w *Window) URL() string { return "http://" + w.listener.Addr().String() + w.path }
 func (w *Window) Close() error {
+	w.mu.Lock()
+	if w.resourceCancel != nil {
+		w.resourceCancel()
+	}
+	w.resourceEnabled = false
+	if w.personalCancel != nil {
+		w.personalCancel()
+	}
+	if w.personalRunCancel != nil {
+		w.personalRunCancel()
+	}
+	w.personalAccount = ""
+	w.personalGit = nil
+	done := w.personalDone
+	w.mu.Unlock()
+	if done != nil {
+		<-done
+	}
 	err := w.server.Close()
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -216,7 +252,7 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 		http.Error(out, "invalid origin", http.StatusForbidden)
 		return
 	}
-	if r.Method != http.MethodGet && !(r.Method == http.MethodPost && (r.URL.Path == w.path+"tasks" || r.URL.Path == w.path+"questions" || r.URL.Path == w.path+"draft" || r.URL.Path == w.path+"submit" || r.URL.Path == w.path+"cancel" || r.URL.Path == w.path+"upload")) {
+	if r.Method != http.MethodGet && !(r.Method == http.MethodPost && (r.URL.Path == w.path+"personal" || r.URL.Path == w.path+"resources" || r.URL.Path == w.path+"tasks" || r.URL.Path == w.path+"questions" || r.URL.Path == w.path+"draft" || r.URL.Path == w.path+"submit" || r.URL.Path == w.path+"cancel" || r.URL.Path == w.path+"upload")) {
 		out.Header().Set("Allow", "GET")
 		http.Error(out, "read-only", http.StatusMethodNotAllowed)
 		return
@@ -226,6 +262,14 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 	out.Header().Set("Referrer-Policy", "no-referrer")
 	out.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'")
 	switch r.URL.Path {
+	case w.path + "personal":
+		w.servePersonal(out, r)
+		return
+	case w.path + "resources":
+		w.serveResources(out, r)
+	case w.path + "resources.mjs":
+		out.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		out.Write(resourceScript)
 	case w.path + "tasks":
 		w.serveTasks(out, r)
 	case w.path + "questions":

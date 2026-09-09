@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"agent_romm/internal/config"
+	"agent_romm/internal/localprobe"
 	"agent_romm/internal/network"
 	"agent_romm/internal/room"
 	"agent_romm/internal/store"
@@ -294,5 +295,44 @@ func TestRemoveDisconnectsAndStaysRemovedUntilExplicitAdd(t *testing.T) {
 	credentials, _ := c.Credentials()
 	if credentials[0].Token != original[0].Token {
 		t.Fatal("lost approved identity")
+	}
+}
+
+func TestBrowserJoinReusesIdentityAndConnection(t *testing.T) {
+	catalog := catalogFixture(t)
+	var starts atomic.Int32
+	server, err := Start(context.Background(), catalog, func(ctx context.Context, r Room, update Update) error {
+		starts.Add(1)
+		update("pending", "private detail", "http://127.0.0.1/private/")
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	req := localprobe.JoinRequest{Address: "127.0.0.1:7443", Session: sessionFixture(), Name: "web-user"}
+	if _, err := server.joinFromBrowser(req, false); err != nil {
+		t.Fatal(err)
+	}
+	creds, _ := catalog.Credentials()
+	if len(creds) != 0 {
+		t.Fatal("status created identity")
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := server.joinFromBrowser(req, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	await(t, func() bool { return starts.Load() == 1 })
+	creds, _ = catalog.Credentials()
+	if len(creds) != 1 {
+		t.Fatal("duplicate identity")
+	}
+	await(t, func() bool { reply, _ := server.joinFromBrowser(req, false); return reply.State == "pending" })
+	reply, _ := server.joinFromBrowser(req, false)
+	b, _ := json.Marshal(reply)
+	if string(b) != `{"state":"pending"}` {
+		t.Fatal("leaked private state", string(b))
 	}
 }

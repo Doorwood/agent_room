@@ -10,6 +10,23 @@
 
 .sent-attachment{display:block;margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:8px;color:var(--accent)}.sent-attachment img{display:block;max-width:100%;max-height:300px;object-fit:contain}#stop-model:disabled{opacity:.45;cursor:default}#history-search{display:flex;gap:8px;margin-bottom:16px}#history-query{min-width:0;flex:1}#search-results article{padding:16px;white-space:pre-wrap}
 
-.question-view-hidden{display:none!important}#conversation-views{display:flex;gap:8px;margin:12px 0}#conversation-views[hidden]{display:none}#conversation-views button[aria-pressed="true"]{font-weight:bold;text-decoration:underline}#question-member{margin:8px}
+.question-view-hidden{display:none!important}/* Keep view switching available throughout the workspace, including the composer.
+   The nav is a sibling of main so main's bottom does not release its sticky position. */
+#conversation-views{position:sticky;top:0;z-index:10;display:flex;gap:8px;max-width:880px;margin:0 auto;padding:12px 30px;background:var(--paper);border-bottom:1px solid var(--line);box-shadow:0 4px 12px #26362f08}
+#conversation-views button{white-space:nowrap;min-height:40px}
+#conversation-views button[aria-pressed="true"]{background:#dce8d6;border-color:#c0d3b9}
+.workspace main{padding-top:24px}
+@media(max-width:600px){#conversation-views{gap:6px;padding:10px 16px}#conversation-views button{flex:1;min-width:0;padding:8px 9px;font-size:13px}}#conversation-views[hidden]{display:none}#conversation-views button[aria-pressed="true"]{font-weight:bold;text-decoration:underline}#question-member{margin:8px}
 .message-time{font-size:11px;color:var(--muted);white-space:nowrap}.answer-bar{gap:10px;flex-wrap:wrap}.answer-bar .message-author{margin-right:auto}.convert-task{font-size:12px}#tasks-panel p,#task-history{overflow-wrap:anywhere;white-space:pre-wrap}#task-list{display:grid;gap:8px;margin:18px 0}.task-list-item{text-align:left;padding:12px 16px;background:white}.task-list-item[aria-pressed=true]{border-color:var(--accent);font-weight:bold}#task-detail{border-top:1px solid var(--line);margin-top:24px;padding-top:16px}#task-state{color:var(--accent)}#task-runs article{padding:20px}#task-runs time,#task-dates,#task-source-seq,#task-followup-hint{font-size:12px;color:var(--muted)}#task-actions{display:flex;gap:8px;margin:20px 0}#task-followup{padding:20px;background:white;border:1px solid var(--line);border-radius:12px;margin-bottom:20px}#task-status:empty{display:none}dialog{max-width:560px;width:calc(100% - 32px);border:1px solid var(--line);border-radius:16px;padding:24px;color:var(--ink)}dialog::backdrop{background:#26362f66}dialog label{display:block;margin-top:14px}dialog input{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font:inherit}dialog textarea{margin:12px 0}#task-create-status{font-size:13px;color:var(--muted)}
 #questions-list time{display:block;padding:0 20px;color:var(--muted);font-size:12px}
+
+#resource-dialog{width:min(760px,calc(100vw - 32px));max-height:85vh;overflow:auto;border:1px solid #ced8ca;border-radius:14px;padding:24px;color:var(--ink,#26362f)}
+#resource-dialog::backdrop{background:#16312666}
+#resource-dialog label{display:block;margin-top:14px}
+#resource-dialog input,#resource-dialog textarea,#resource-dialog select{box-sizing:border-box;width:100%;font:inherit;padding:8px;margin:6px 0}
+#resource-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto}
+#resource-dialog button{margin:6px 6px 6px 0}
+
+#personal-banner{max-width:820px;margin:12px auto;padding:12px 20px;background:#eef4ed;border:1px solid #c4d2c2;border-radius:10px;font-size:14px}#personal-banner button{margin-left:10px}#personal-dialog{width:min(680px,calc(100vw - 32px));max-height:85vh;overflow:auto;border:1px solid var(--line);border-radius:16px;padding:24px}#personal-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:14px}#personal-dialog p,#personal-dialog code{overflow-wrap:anywhere}#personal-dialog button{margin:6px 8px 6px 0}#personal-dialog::backdrop{background:#26362f77}#personal-grant{background:var(--accent);color:white}#personal-grant:disabled{opacity:.5}
+
+#personal-git label{display:block;margin-top:12px}#personal-git input{width:100%;padding:10px;border:1px solid var(--line);border-radius:6px;font:inherit}#personal-git-grant{background:var(--accent);color:white}

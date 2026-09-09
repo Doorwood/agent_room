@@ -70,3 +70,11 @@ func TestAdvertisedAddressNeverWildcard(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestHostWebListenFlagAfterProject(t *testing.T) {
+	got := interspersed([]string{".", "--web-listen", "0.0.0.0:8080"})
+	want := []string{"--web-listen", "0.0.0.0:8080", "--", "."}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatal(got)
+	}
+}

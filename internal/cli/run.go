@@ -27,6 +27,7 @@ import (
 	"agent_romm/internal/identity"
 	"agent_romm/internal/network"
 	"agent_romm/internal/observability"
+	"agent_romm/internal/personal"
 	"agent_romm/internal/room"
 	"agent_romm/internal/store"
 )
@@ -54,7 +55,7 @@ func ProductionDependencies() Dependencies {
 	}}
 }
 
-const help = "agent_room: shared project sessions\ncommands: dashboard, host, join, answers, session, requests, approve, deny, revoke, role, version, doctor\nStart: agent_room dashboard\nJoin: agent_room join HOST_IP COMPLETE_SESSION_ID --name YOUR_NAME --answers\nHost: agent_room host .\nUse <command> --help for examples and options.\nLegacy commands: agent_room help legacy\n"
+const help = "agent_room: shared project sessions\ncommands: dashboard, host, join, answers, session, requests, approve, deny, revoke, role, resource-mode, version, doctor\nStart: agent_room dashboard\nJoin: agent_room join HOST_IP COMPLETE_SESSION_ID --name YOUR_NAME --answers\nHost: agent_room host .\nUse <command> --help for examples and options.\nLegacy commands: agent_room help legacy\n"
 
 // Run returns 2 for invalid arguments, 3 for unsupported platforms, and 1 for
 // operational failures. It never resolves a Codex executable for help/parsing.
@@ -66,6 +67,10 @@ func Run(ctx context.Context, args []string, out, diagnostics io.Writer, d Depen
 	switch args[0] {
 	case "--version", "version":
 		return runVersion(args[1:], out, diagnostics)
+	case "personal-commit":
+		return runPersonalCommit(ctx, args[1:], out, diagnostics, d)
+	case "personal-create":
+		return runPersonalCreate(ctx, args[1:], out, diagnostics, d)
 	case "doctor":
 		return runDoctor(ctx, args[1:], out, diagnostics)
 	case "dashboard":
@@ -375,6 +380,20 @@ func serveNetwork(ctx context.Context, state string, diagnostics io.Writer, d De
 	hub := daemon.NewHub(256, 16<<20)
 	logger := observability.New(diagnostics)
 	agent, agentDone := observeAgent(ownerCtx, rt, logger)
+	var personalBroker *personal.Broker
+	if start != nil {
+		personalBroker = personal.New(func(ctx context.Context, uid room.UID, id room.ClientMessageID) error {
+			return st.CheckPersonalSender(ctx, cfg.RoomID, uid, id)
+		})
+		if data, e := os.ReadFile(filepath.Join(state, "private", "resource-mode")); e == nil && strings.TrimSpace(string(data)) == "personal" {
+			personalBroker.SetMode("personal")
+		}
+		executable, e := os.Executable()
+		if e != nil {
+			return e
+		}
+		agent = &personal.Agent{Agent: agent, Broker: personalBroker, Executable: executable, State: state}
+	}
 	observedDone = agentDone
 	coordinator, err := room.NewCoordinator(cfg.RoomID, cfg.ProjectRoot, st, agent, loggedSink{hub, logger}, wallClock{})
 	if err != nil {
@@ -406,6 +425,7 @@ func serveNetwork(ctx context.Context, state string, diagnostics io.Writer, d De
 		if err != nil {
 			return err
 		}
+		remote.EnablePersonal(personalBroker)
 		remoteErrors = remote.Errors()
 	}
 	if start == nil {

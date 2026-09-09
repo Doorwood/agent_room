@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Host 只读入口 · agent_room</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<body><header><strong>agent_room</strong><span>Host 只读入口</span></header><main>
+<p class="eyebrow">JOIN A PROJECT</p><h1 id="project">正在读取项目…</h1><p>在自己的电脑上安装客户端，申请加入这个项目，一起讨论、执行和验收任务。</p><p id="host-version"></p><p id="page-status" role="status"></p>
+<section><h2>项目连接信息</h2><p>此页面提供连接信息、安装指引和申请加入入口。查看聊天、安排工作和任务管理请使用自己的客户端，并等待 Host 审批。</p><label>Host 地址</label><pre id="address"></pre><button data-copy="address" disabled>复制地址</button><label>Session ID</label><pre id="session"></pre><button data-copy="session" disabled>复制 Session ID</button></section>
+<section><h2>1. 检查自己的电脑</h2><p>点击后打开本机检测页，确认是否有新版 agent_room Dashboard 正在运行。</p><button id="detect">检测本机 Dashboard</button><p id="detect-status" role="status">尚未检测。浏览器无法直接读取安装状态；没有响应不代表未安装。</p><p class="hint">如果已安装但尚未启动，请在自己电脑的终端执行下面的命令，再次检测。</p><pre id="start">agent_room --version
+agent_room dashboard</pre><button data-copy="start">复制启动命令</button></section>
+<section><h2>2. 尚未安装？一条命令准备好</h2><p>适用于 macOS / Linux，需要 Node.js 20+。在自己的终端执行，安装后可在新终端继续使用。</p><p class="hint">如果提示找不到 npm，请先<a href="https://nodejs.org/" target="_blank" rel="noopener noreferrer">安装 Node.js</a>，再运行安装命令。</p><pre id="install">npm exec --yes --registry=https://registry.npmjs.org/ --package=menmu-agent-room@latest -- agent_room-setup
+export PATH="$HOME/.local/bin:$PATH"
+agent_room dashboard</pre><button data-copy="install">复制安装命令</button><details><summary>使用全局 npm 安装 / 更新</summary><pre id="global">npm install -g menmu-agent-room@latest --registry=https://registry.npmjs.org/
+agent_room dashboard</pre><button data-copy="global">复制 npm 命令</button><p>持久化安装用户使用 <code>agent_room-update</code> 更新。更新后重启本地 Dashboard。</p></details><p class="hint">本项目目前支持 macOS / Linux，不提供 Windows 原生客户端。</p></section>
+<section><h2>3. 申请加入项目</h2><p>填写昵称，打开本机确认窗口提交申请。需要先安装并启动新版 Dashboard；审批通过后自动连接。</p><label for="join-name">你的昵称</label><input id="join-name" maxlength="64" autocomplete="nickname" placeholder="填写你的昵称"><button id="apply" disabled>申请连接</button><p id="apply-status" role="status">尚未提交申请。</p><p>也可以手动从本地 Dashboard 加入：</p><ol><li>运行 <code>agent_room dashboard</code>，打开终端输出的本地页面。</li><li>填写上方 Host 地址、完整 Session ID 和你的昵称，点击「保存并连接」。</li><li>等待 Host 批准，再点击「打开对话 ↗」。无需 SSH 账号，也无需在自己电脑安装 Codex。</li></ol><p>也可以从终端直接打开聊天：</p><pre id="join">正在读取连接信息…</pre><button data-copy="join" disabled>复制加入命令</button></section>
+<footer>此 URL 可分享给同网络协作者。获得连接信息仍需申请审批；此页面不提供聊天记录、成员审批、连接控制或项目修改。</footer>
+</main></body></html>

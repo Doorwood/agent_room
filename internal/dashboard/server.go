@@ -17,6 +17,8 @@ import (
 
 	"agent_romm/internal/buildinfo"
 	"agent_romm/internal/client"
+	"agent_romm/internal/localprobe"
+	"agent_romm/internal/network"
 )
 
 //go:embed index.html app.js style.css
@@ -28,6 +30,7 @@ type connection struct {
 	done   chan struct{}
 }
 type Server struct {
+	probe     *localprobe.Server
 	workers   sync.WaitGroup
 	catalog   Catalog
 	connector Connector
@@ -57,7 +60,33 @@ func Start(ctx context.Context, catalog Catalog, connector Connector) (*Server, 
 	s := &Server{catalog: catalog, connector: connector, active: map[string]*connection{}, listener: l, path: "/" + hex.EncodeToString(token[:]) + "/", ctx: ctx, cancel: cancel}
 	s.http = &http.Server{Handler: http.HandlerFunc(s.serve), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
 	go s.http.Serve(l)
+	// Discovery is optional; a busy probe port must not prevent local management.
+	s.probe, _ = localprobe.Start(s.URL(), s.joinFromBrowser)
 	return s, nil
+}
+
+// joinFromBrowser keeps credentials and management URLs exclusively on this machine.
+func (s *Server) joinFromBrowser(request localprobe.JoinRequest, submit bool) (localprobe.JoinReply, error) {
+	address, err := network.Address(strings.TrimSpace(request.Address))
+	if err != nil {
+		return localprobe.JoinReply{}, err
+	}
+	session, name := strings.TrimSpace(request.Session), strings.TrimSpace(request.Name)
+	if submit {
+		room, err := s.catalog.Add(address, session, name)
+		if err != nil {
+			return localprobe.JoinReply{}, err
+		}
+		if err := s.connect(room); err != nil {
+			return localprobe.JoinReply{}, err
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c := s.active[identity(address, session, name)]; c != nil {
+		return localprobe.JoinReply{State: c.room.Status}, nil
+	}
+	return localprobe.JoinReply{State: "disconnected"}, nil
 }
 func (s *Server) URL() string { return "http://" + s.listener.Addr().String() + s.path }
 func (s *Server) Close() error {
@@ -72,6 +101,9 @@ func (s *Server) Close() error {
 		done = append(done, c.done)
 	}
 	s.mu.Unlock()
+	if s.probe != nil {
+		s.probe.Close()
+	}
 	err := s.http.Close()
 	for _, d := range done {
 		<-d

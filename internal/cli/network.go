@@ -17,16 +17,19 @@ import (
 	"agent_romm/internal/admin"
 	"agent_romm/internal/answerwindow"
 	"agent_romm/internal/client"
+	"agent_romm/internal/codex"
 	"agent_romm/internal/config"
 	"agent_romm/internal/daemon"
 	"agent_romm/internal/dashboard"
+	"agent_romm/internal/hostview"
 	"agent_romm/internal/network"
+	"agent_romm/internal/resources"
 	"agent_romm/internal/store"
 )
 
 func isNetworkCommand(s string) bool {
 	switch s {
-	case "host", "join", "answers", "requests", "approve", "deny", "revoke", "role", "session":
+	case "host", "join", "answers", "requests", "approve", "deny", "revoke", "role", "session", "resource-mode":
 		return true
 	}
 	return false
@@ -44,6 +47,8 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 			fmt.Fprintln(diag, "Copy the complete session_id from the host. First connection requires host approval. For room management: agent_room dashboard")
 		case "approve", "role":
 			fmt.Fprintf(diag, "Usage: agent_room %s REQUEST_ID --role roommate|visitor|asker [--state DIR]\n", args[0])
+		case "resource-mode":
+			fmt.Fprintln(diag, "Usage: agent_room resource-mode [host|personal] [--state DIR]\nDefaults to host. Changes cancel in-flight resource calls. Personal credentials stay on the client.")
 		case "host":
 			fmt.Fprintln(diag, "Usage: agent_room host PROJECT\nExample: agent_room host .")
 		default:
@@ -58,6 +63,7 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 		fs.StringVar(&role, "role", "", "roommate | visitor | asker (host-assigned)")
 	}
 	advertise := ""
+	webListen := ""
 	answerView, noOpen := false, false
 	if args[0] != "join" && args[0] != "answers" {
 		fs.StringVar(&state, "state", "", "host state directory (default: current Git project session)")
@@ -65,6 +71,7 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 	if args[0] == "host" {
 		fs.StringVar(&address, "listen", address, "host listen IP:port (default: saved port, then 7443 or an available port)")
 		fs.StringVar(&advertise, "advertise", "", "address to display to participants")
+		fs.StringVar(&webListen, "web-listen", "", "read-only web entry IP:port (default: host interface, port 7444 or an available port)")
 	}
 	if args[0] == "join" || args[0] == "answers" {
 		fs.StringVar(&name, "name", "", "your display name (no system account required)")
@@ -95,7 +102,7 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 				explicitListen = true
 			}
 		})
-		err = runHost(ctx, fs.Arg(0), state, address, advertise, !explicitListen, out, diag, d)
+		err = runHost(ctx, fs.Arg(0), state, address, advertise, webListen, !explicitListen, out, diag, d)
 	case "join", "answers":
 		if fs.NArg() != 2 || name == "" {
 			return usage()
@@ -104,6 +111,21 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 			return usage()
 		}
 		err = runJoinView(ctx, fs.Arg(0), fs.Arg(1), name, answerView || args[0] == "answers", args[0] == "answers", noOpen, out, diag, d)
+	case "resource-mode":
+		if fs.NArg() > 1 {
+			return usage()
+		}
+		mode := ""
+		if fs.NArg() == 1 {
+			mode = fs.Arg(0)
+			if mode != "host" && mode != "personal" {
+				return usage()
+			}
+		}
+		state, err = resolveState(ctx, state, ".")
+		if err == nil {
+			err = network.ResourceMode(ctx, filepath.Join(state, "private"), mode, out)
+		}
 	case "session":
 		if fs.NArg() != 0 {
 			return usage()
@@ -162,7 +184,7 @@ func interspersed(args []string) []string {
 		if len(a) > 1 && a[0] == '-' {
 			flags = append(flags, a)
 			switch a {
-			case "--role", "-role", "--state", "--listen", "--advertise", "--name", "-state", "-listen", "-advertise", "-name":
+			case "--web-listen", "-web-listen", "--role", "-role", "--state", "--listen", "--advertise", "--name", "-state", "-listen", "-advertise", "-name":
 				if i+1 < len(args) {
 					i++
 					flags = append(flags, args[i])
@@ -174,7 +196,7 @@ func interspersed(args []string) []string {
 	}
 	return append(append(flags, "--"), positionals...)
 }
-func runHost(ctx context.Context, project, state, address, advertise string, automaticListen bool, out, diag io.Writer, d Dependencies) error {
+func runHost(ctx context.Context, project, state, address, advertise, webListen string, automaticListen bool, out, diag io.Writer, d Dependencies) error {
 	if err := d.CheckPlatform(); err != nil {
 		return err
 	}
@@ -223,6 +245,12 @@ func runHost(ctx context.Context, project, state, address, advertise string, aut
 	if cfg.ProjectRoot != root {
 		return errors.New("this state belongs to a different project; use --state with a new directory")
 	}
+	var portal *hostview.Server
+	defer func() {
+		if portal != nil {
+			portal.Close()
+		}
+	}()
 	return serveNetwork(ctx, state, diag, d, func(cfg config.RuntimeConfig, st *store.Store, server *daemon.Server) (*network.Server, error) {
 		var remote *network.Server
 		var boundAddress string
@@ -235,6 +263,9 @@ func runHost(ctx context.Context, project, state, address, advertise string, aut
 		if err != nil {
 			return nil, err
 		}
+		remote.EnableResources(resources.Executor{Root: root}.Run, func(ctx context.Context, question, evidence string) (string, error) {
+			return codex.SummarizeResource(ctx, codexPath(d), question, evidence)
+		})
 		if advertise == "" {
 			advertise = advertisedAddress(remote.Address())
 		}
@@ -245,6 +276,26 @@ func runHost(ctx context.Context, project, state, address, advertise string, aut
 			remote.Close()
 			return nil, err
 		}
+		webAddress := webListen
+		automaticWeb := webAddress == ""
+		if automaticWeb {
+			webAddress = net.JoinHostPort(host, "7444")
+		}
+		err = startWithPortFallback(webAddress, automaticWeb, func(candidate string) error {
+			var e error
+			portal, e = hostview.Start(candidate, hostview.Info{Project: filepath.Base(root), Address: advertise, Session: remote.SessionID()})
+			return e
+		})
+		if err != nil {
+			remote.Close()
+			return nil, fmt.Errorf("start read-only Host web entry: %w", err)
+		}
+		webHost, _, _ := net.SplitHostPort(portal.Address())
+		if ip := net.ParseIP(webHost); webHost == "" || ip != nil && ip.IsUnspecified() {
+			webHost, _, _ = net.SplitHostPort(advertise)
+		}
+		_, webPort, _ := net.SplitHostPort(portal.Address())
+		fmt.Fprintf(out, "Host dashboard (read-only): http://%s/\n", net.JoinHostPort(webHost, webPort))
 		if configDir, e := d.UserConfigDir(); e == nil {
 			if e = (dashboard.Catalog{Config: configDir}).RememberHost(state); e != nil {
 				fmt.Fprintln(diag, "Dashboard room index could not be saved:", e)
@@ -300,6 +351,7 @@ func runJoinView(ctx context.Context, host, session, name string, view, readOnly
 		window.EnableUploads(launcher.Upload)
 		window.EnableDownloads(launcher.Download)
 		window.EnableQuestions(launcher.Query)
+		window.EnableResources(launcher.Resources)
 		window.EnableTasks(launcher.Tasks)
 		window.DraftDirectory(filepath.Join(cfgRoot, "agent_room", "drafts"))
 		window.Metadata(address, session, name)

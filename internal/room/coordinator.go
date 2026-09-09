@@ -210,7 +210,15 @@ func (c *Coordinator) dispatchNext(ctx context.Context) error {
 	if next.Input.TaskID > 0 {
 		text = fmt.Sprintf("[project task id: %d]\n", next.Input.TaskID) + text
 	}
-	turnID, err := c.agent.StartTurn(ctx, c.state.threadID, next.Input.ClientMessageID, text)
+	var turnID TurnID
+	var err error
+	if bound, ok := c.agent.(interface {
+		StartTurnFor(context.Context, ThreadID, ClientMessageID, Actor, string) (TurnID, error)
+	}); ok {
+		turnID, err = bound.StartTurnFor(ctx, c.state.threadID, next.Input.ClientMessageID, next.Actor, text)
+	} else {
+		turnID, err = c.agent.StartTurn(ctx, c.state.threadID, next.Input.ClientMessageID, text)
+	}
 	if err != nil {
 		code, digest, certainty := mutationFailure(err)
 		if certainty == DeliveryNotSent {

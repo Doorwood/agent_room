@@ -126,6 +126,25 @@ and `~/.local/bin/agent_room-update` wrappers, and remove only
 user configuration directory to preserve host state and member credentials.
 The marked PATH block can remain if you use `~/.local/bin` for other tools.
 
+## 1.0.8 更新
+
+- 聊天页固定导航，滚动聊天时可直接切换成员视图和查看项目任务。
+- Host 启动提供同网络只读欢迎页，展示项目信息、安装方法，并通过本机 Dashboard 检测与确认申请连接。
+- 新增项目资源授权模式：默认 `host`，Host 可执行 `agent_room resource-mode personal` 切换为各成员本机授权。支持 GitHub、飞书和本机项目文本读取；面板结果默认个人可见，可主动带入主聊天草稿。
+- 个人模式下，发送「创建 XX 飞书文档」会使用发送者本机飞书用户账号；缺少授权时向本人询问，凭据留在本机。
+- 明确要求提交代码时，向发送者确认 Git 姓名、邮箱，Author 和 Committer 使用其确认署名；不修改 Host Git 配置。按指定整文件快照提交，保留其他文件的暂存内容。仅要求修改代码不自动提交。
+
+Git 署名不代表 GitHub 身份认证；当前只创建本地未签名提交，不执行 hooks、不自动 push。提交前需完成项目检查，并核对同一文件是否含其他成员的修改。个人模式的专用通道校验发送者，但不会在系统层拦截任意 Host Shell/MCP；自然语言操作依赖模型路由指令。
+
+Host、Dashboard 和客户端均需升级并重启；安装更新不会自动中断当前任务。资源面板的隔离总结有独立运行环境要求，详见 [个人资源授权说明](https://github.com/Doorwood/agent_room/blob/main/docs/design/personal-resource-authorization.md)。
+
+```sh
+npm install -g menmu-agent-room@1.0.8 --registry=https://registry.npmjs.org/
+agent_room --version
+```
+
+持久化安装用户执行 `agent_room-update`。欢迎页的本机检测只能确认正在运行的新版 Dashboard，不能扫描已安装软件。
+
 ## 1.0.7 更新
 
 - 消息可转为项目任务，保留来源，不重复触发模型；同一工作消息和回答归到同一任务。

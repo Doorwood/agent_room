@@ -111,14 +111,16 @@ function card(answer) {
   const copy = document.createElement('button');copy.textContent = '复制';
   const stamp=document.createElement('time');stamp.className='message-time';
   const convert=document.createElement('button');convert.className='convert-task';convert.textContent='转为任务';convert.hidden=true;
-  const record = {article, label, copy, stamp, convert, answer, signature:'', wasFinal:false, initialized:false, hadProgress:false};
+  const createDoc=document.createElement('button');createDoc.type='button';createDoc.className='create-document';createDoc.textContent='用我的飞书创建';createDoc.hidden=true;
+  const record = {article, label, copy, stamp, convert, createDoc, answer, signature:'', wasFinal:false, initialized:false, hadProgress:false};
   copy.addEventListener('click', async () => {
     try {await navigator.clipboard.writeText(record.answer.text);copy.textContent = '已复制';}
     catch {copy.textContent = '复制失败，请选中文字';}
     setTimeout(() => {copy.textContent = '复制';}, 2000);
   });
   convert.onclick=()=>tasks.convert(record.answer);
-  bar.append(label,stamp,convert,copy);
+  createDoc.onclick=()=>window.dispatchEvent(new CustomEvent('agent-room-create-document',{detail:{text:record.answer.text}}));
+  bar.append(label,stamp,convert,createDoc,copy);
   const body = document.createElement('div');body.className = 'answer-text';
   const acknowledgement = document.createElement('div');acknowledgement.className = 'acknowledgement';acknowledgement.setAttribute('role','status');
   const details = document.createElement('details');details.className = 'task-progress';
@@ -138,6 +140,7 @@ function updateCard(article, answer) {
   setTime(r.stamp,answer.time);r.stamp.hidden=answer.role==='assistant' && !answer.time && !answer.final;
   r.convert.dataset.seq=(answer.seq && (answer.role==='user' && ['prompt','note','recovery-prompt'].includes(answer.kind) || answer.role==='assistant' && answer.final))?String(answer.seq):'';
   r.convert.hidden=lastState?.userRole!=='roommate' || !r.convert.dataset.seq;
+  r.createDoc.hidden=lastState?.userRole!=='roommate' || answer.role!=='assistant' || !answer.final;
   if (r.signature === signature) return;
   r.signature = signature;
   article.className = answer.role === 'user' ? 'user-message' : 'model-message task-message';
@@ -166,6 +169,7 @@ function renderState(state, prepend=false) {
     for (const [seq, element] of cards) {
       if (!retained.has(seq)) { element.remove(); cards.delete(seq); }
     }
+    lastState = state;
     let previous = null;
     for (const answer of grouped) {
       let element = cards.get(answer.key);
@@ -175,7 +179,6 @@ function renderState(state, prepend=false) {
       if (element !== expected) container.insertBefore(element, expected);
       previous = element;
     }
-    lastState = state;
     const role=state.userRole || 'roommate';
     document.getElementById('role-label').textContent=({roommate:'协作成员',visitor:'参观者 · 仅查看和搜索聊天记录',asker:'询问者 · 请切换到询问者问答'})[role] || role;
     document.getElementById('queue-panel').hidden=role!=='roommate';

@@ -1,0 +1,3 @@
+:root{color-scheme:light}body{margin:0;padding:24px;background:#f6f7f2;color:#26362f;font:16px/1.8 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:580px;margin:20px auto;padding:24px;background:white;border:1px solid #dfe5dc;border-radius:16px}h1{font-size:24px}a{display:inline-block;background:#42795c;color:white;border-radius:8px;padding:10px 16px;text-decoration:none}a[hidden]{display:none}a:focus-visible{outline:3px solid #26362f;outline-offset:3px}
+
+pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}button{font:inherit;background:#42795c;color:white;border:0;border-radius:8px;padding:10px 16px;cursor:pointer}button:disabled{opacity:.5}

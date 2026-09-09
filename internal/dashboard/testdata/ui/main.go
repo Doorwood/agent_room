@@ -4,8 +4,11 @@ package main
 import (
 	"agent_romm/internal/answerwindow"
 	"agent_romm/internal/dashboard"
+	"agent_romm/internal/hostview"
 	"agent_romm/internal/network"
+	"agent_romm/internal/personal"
 	"agent_romm/internal/questions"
+	"agent_romm/internal/resources"
 	"agent_romm/internal/room"
 	"agent_romm/internal/store"
 	"context"
@@ -14,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -73,6 +77,20 @@ func main() {
 	if _, err := catalog.Add("127.0.0.1:7443", session, "alice"); err != nil {
 		panic(err)
 	}
+	fakeBin := filepath.Join(dir, "fake-bin")
+	os.MkdirAll(fakeBin, 0700)
+	fakeCLI := `#!/bin/sh
+if [ "$1" = "whoami" ]; then
+ echo '{"identity":"user","available":true,"tokenStatus":"ready","onBehalfOf":{"userName":"Browser User","openId":"ou_browser123456"}}'
+elif [ "$1" = "docs" ] && [ "$2" = "+create" ]; then
+ cat >/dev/null
+ echo '{"ok":true,"identity":"user","data":{"document":{"document_id":"NaturalDoc123456","url":"https://example.feishu.cn/docx/NaturalDoc123456"}}}'
+else
+ exit 1
+fi
+`
+	os.WriteFile(filepath.Join(fakeBin, "lark-cli"), []byte(fakeCLI), 0700)
+	os.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	connector := func(ctx context.Context, r dashboard.Room, update dashboard.Update) error {
 		update("pending", "等待 host 审批（测试模拟）", "")
 		select {
@@ -119,6 +137,65 @@ func main() {
 			role = "asker"
 			uid = 1002
 		}
+		broker := personal.New(nil)
+		broker.SetMode("personal")
+		defer broker.Invalidate()
+		docResults := make(chan personal.Result, 1)
+		commitResults := make(chan personal.CommitReceipt, 1)
+		gitRoot := ""
+		fixtureGit := func(args ...string) string {
+			cmd := exec.Command("git", append([]string{"-C", gitRoot, "-c", "user.name=Fixture Host", "-c", "user.email=fixture-host@example.test", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args...)...)
+			b, e := cmd.CombinedOutput()
+			if e != nil {
+				panic(string(b))
+			}
+			return strings.TrimSpace(string(b))
+		}
+		if r.Name == "git-sender" {
+			gitRoot, _ = os.MkdirTemp(dir, "git-fixture-")
+			fixtureGit("init")
+			os.WriteFile(filepath.Join(gitRoot, "code.go"), []byte("initial\n"), 0600)
+			fixtureGit("add", "code.go")
+			fixtureGit("commit", "-m", "initial")
+		}
+
+		w.EnableResources(func(ctx context.Context, req network.ResourceRequest, execute resources.Execute) (network.ResourceReply, error) {
+			role := "roommate"
+			if r.Name == "visitor" || r.Name == "asker" {
+				role = r.Name
+			}
+			if req.Action == "personal-pending" || req.Action == "personal-result" {
+				if role != "roommate" {
+					return network.ResourceReply{}, fmt.Errorf("role denied")
+				}
+				reply := network.ResourceReply{Type: "done", Mode: "personal", Role: role}
+				if req.Action == "personal-pending" {
+					var err error
+					reply.Personal, err = broker.Next(ctx, uid, req.ClientID)
+					return reply, err
+				}
+				return reply, broker.Resolve(ctx, uid, req.ClientID, *req.PersonalResult)
+			}
+			if req.Action == "info" {
+				return network.ResourceReply{Type: "info", Mode: "personal", Role: role}, nil
+			}
+			if role == "visitor" {
+				return network.ResourceReply{}, fmt.Errorf("visitor denied")
+			}
+			if req.Resource.IsWrite() {
+				if role != "roommate" {
+					return network.ResourceReply{}, fmt.Errorf("write denied")
+				}
+				b, _ := json.Marshal(resources.CreateReceipt{RequestID: req.Resource.RequestID, Title: req.Resource.Title, Account: resources.FeishuIdentity{Name: "Browser User", OpenID: req.Resource.AccountID}, State: "completed", URL: "https://example.feishu.cn/docx/BrowserDoc123"})
+				return network.ResourceReply{Type: "done", Mode: "personal", Role: role, Text: string(b)}, nil
+			}
+			if req.Resource.Action == "project.file" {
+				text, err := execute(ctx, req.Resource)
+				return network.ResourceReply{Type: "done", Mode: "personal", Role: role, Text: text, Answer: "资源回答：" + text}, err
+			}
+			return network.ResourceReply{Type: "done", Mode: "personal", Role: role, Text: "private evidence for " + r.Name, Answer: "独立资源回答：" + req.Question}, nil
+		})
+
 		w.EnableQuestions(func(ctx context.Context, req network.QueryRequest) (network.QueryReply, error) {
 			reply := network.QueryReply{Role: role, Ready: true}
 			var err error
@@ -202,6 +279,20 @@ func main() {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
+			case result := <-commitResults:
+				text := "提交未完成：" + result.Error
+				if result.State == "completed" {
+					text = "已提交，Author/Committer：" + result.Author.Name + " <" + result.Author.Email + ">，commit：" + result.Commit
+				}
+				w.Add(room.DurableEvent{Seq: seq, CreatedAt: time.Now()}, text)
+				seq++
+			case result := <-docResults:
+				text := "个人创建未完成：" + result.Error
+				if result.Receipt != nil {
+					text = "已使用 " + result.Receipt.Account.Name + " 的个人权限创建：[打开飞书文档](" + result.Receipt.URL + ")"
+				}
+				w.Add(room.DurableEvent{Seq: seq, CreatedAt: time.Now()}, text)
+				seq++
 			case submission := <-submissions:
 				if r.Name == "tasks" {
 					before, _ := taskDB.LatestSeq(ctx, "ui-tasks")
@@ -225,6 +316,35 @@ func main() {
 				}
 				seed(seq, submission.Text)
 				seq++
+				if strings.HasPrefix(submission.Text, "创建一个") && strings.Contains(submission.Text, "飞书文档") {
+					cap, _ := broker.Bind(room.ClientMessageID(submission.ID), room.Actor{UID: uid, Name: r.Name})
+					title := submission.Text
+					go func() {
+						result, err := broker.Call(ctx, cap, title, "模型根据用户要求准备的完整项目规划正文。\n不会在 Host 上创建。")
+						if err == nil {
+							select {
+							case docResults <- result:
+							case <-ctx.Done():
+							}
+						}
+					}()
+				}
+				if gitRoot != "" && strings.Contains(submission.Text, "并提交") {
+					head := fixtureGit("rev-parse", "HEAD")
+					os.WriteFile(filepath.Join(gitRoot, "code.go"), []byte(fmt.Sprintf("fixture change %d\n", seq)), 0600)
+					cap, _ := broker.Bind(room.ClientMessageID(submission.ID), room.Actor{UID: uid, Name: r.Name})
+					in := personal.CommitInput{Message: submission.Text, Paths: []string{"code.go"}, ExpectedHead: head}
+					go func() {
+						result, e := broker.Commit(ctx, cap, gitRoot, filepath.Join(gitRoot, ".git", "personal-receipts"), in)
+						if e != nil {
+							result.Error = e.Error()
+						}
+						select {
+						case commitResults <- result:
+						case <-ctx.Done():
+						}
+					}()
+				}
 				if submission.Text == "测试长任务" {
 					body, _ := json.Marshal(map[string]string{"turn_id": "ui-active", "client_message_id": fmt.Sprint(seq - 1)})
 					w.Event(room.DurableEvent{Seq: seq, Kind: "turn/running", ActorUID: 1001, Payload: body})
@@ -240,6 +360,12 @@ func main() {
 		panic(err)
 	}
 	defer server.Close()
+	portal, err := hostview.Start("127.0.0.1:0", hostview.Info{Project: "demo-project", Address: "127.0.0.1:7443", Session: session})
+	if err != nil {
+		panic(err)
+	}
+	defer portal.Close()
+	fmt.Fprintln(os.Stderr, "HOST_WEB_URL=http://"+portal.Address()+"/")
 	fmt.Println(server.URL())
 	<-ctx.Done()
 }

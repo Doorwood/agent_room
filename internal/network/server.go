@@ -15,15 +15,25 @@ import (
 	"sync"
 	"time"
 
+	"agent_romm/internal/personal"
 	"agent_romm/internal/questions"
+	"agent_romm/internal/resources"
 	"agent_romm/internal/room"
 	"agent_romm/internal/store"
+	"strings"
 )
 
 type Sessions interface {
 	ServeMember(context.Context, net.Conn, room.Member)
 }
 type Server struct {
+	personal        *personal.Broker
+	resourceMode    string
+	resourceExecute resources.Execute
+	resourceSummary ResourceSummary
+	resourceBusy    map[room.UID]bool
+	resourceConns   map[net.Conn]bool
+
 	questions  *questions.Service
 	privateDir string
 	uploadMu   sync.Mutex
@@ -58,6 +68,21 @@ func Start(ctx context.Context, address, privateDir string, rid room.RoomID, st 
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	s := &Server{privateDir: privateDir, store: st, room: rid, session: string(rid) + "." + pin, listener: l, ctx: ctx, cancel: cancel, conns: map[net.Conn]room.UID{}, errors: make(chan error, 2), adminPath: filepath.Join(privateDir, "network-admin.sock")}
+	s.resourceMode = "host"
+	if b, e := os.ReadFile(filepath.Join(privateDir, "resource-mode")); e == nil {
+		s.resourceMode = strings.TrimSpace(string(b))
+		if s.resourceMode != "host" && s.resourceMode != "personal" {
+			l.Close()
+			cancel()
+			return nil, errors.New("invalid persisted resource mode")
+		}
+	} else if !os.IsNotExist(e) {
+		l.Close()
+		cancel()
+		return nil, e
+	}
+	s.resourceBusy = map[room.UID]bool{}
+	s.resourceConns = map[net.Conn]bool{}
 	// Called only while the room's exclusive owner lock is held. A stale socket
 	// from an earlier crashed process may be removed; regular files are refused.
 	if info, e := os.Lstat(s.adminPath); e == nil {
@@ -163,7 +188,7 @@ func (s *Server) handle(c net.Conn, sessions Sessions) {
 	if err := readJSON(c, &h); err != nil {
 		return
 	}
-	if h.Operation != "" && h.Operation != "upload" && h.Operation != "download" && h.Operation != "questions" && h.Operation != "tasks" {
+	if h.Operation != "" && h.Operation != "upload" && h.Operation != "download" && h.Operation != "questions" && h.Operation != "tasks" && h.Operation != "resources" {
 		writeJSON(c, Reply{State: "unsupported-operation"})
 		return
 	}
@@ -197,6 +222,10 @@ func (s *Server) handle(c net.Conn, sessions Sessions) {
 		return
 	}
 	_ = c.SetDeadline(time.Time{})
+	if h.Operation == "resources" {
+		s.serveResources(c, member, h.Token)
+		return
+	}
 	if h.Operation == "tasks" {
 		s.serveTasks(c, member, h.Token)
 		return
@@ -222,6 +251,18 @@ func (s *Server) handle(c net.Conn, sessions Sessions) {
 }
 func (s *Server) manage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Path == "/personal-commit" {
+		s.servePersonalCommit(w, r)
+		return
+	}
+	if r.URL.Path == "/personal-create" {
+		s.servePersonalCreate(w, r)
+		return
+	}
+	if r.URL.Path == "/resource-mode" {
+		s.manageResourceMode(w, r)
+		return
+	}
 	if r.URL.Path != "/admission" {
 		http.NotFound(w, r)
 		return
@@ -253,6 +294,9 @@ func (s *Server) manage(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	result, err := s.store.DecideJoinRole(r.Context(), s.room, in.ID, in.Action, in.Role)
 	if err == nil && (in.Action == "revoke" || in.Action == "role") {
+		if s.personal != nil {
+			s.personal.InvalidateSender(result.UID)
+		}
 		for c, uid := range s.conns {
 			if uid == result.UID {
 				c.Close()
@@ -268,6 +312,11 @@ func (s *Server) manage(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) Close() error {
 	s.once.Do(func() {
+		s.mu.Lock()
+		if s.personal != nil {
+			s.personal.Invalidate()
+		}
+		s.mu.Unlock()
 		s.cancel()
 		if s.listener != nil {
 			s.listener.Close()
