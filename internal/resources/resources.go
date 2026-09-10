@@ -45,7 +45,7 @@ func (r Request) Validate() error {
 				return errors.New("文档包含不支持的控制字符")
 			}
 		}
-		if strings.TrimSpace(r.Title) == "" || len(r.Title) > 240 || len(r.Content) > 24000 || strings.TrimSpace(r.Content) == "" || !utf8.ValidString(r.Title+r.Content) || strings.ContainsAny(r.Title, "\x00\r\n") || strings.ContainsRune(r.Content, 0) || !requestID.MatchString(r.RequestID) || !accountID.MatchString(r.AccountID) || r.Target != "" || r.Query != "" {
+		if strings.TrimSpace(r.Title) == "" || len(r.Title) > 240 || len(r.Content) > 24000 || strings.TrimSpace(r.Content) == "" || !utf8.ValidString(r.Title+r.Content) || strings.ContainsAny(r.Title, "\x00\r\n") || strings.ContainsRune(r.Content, 0) || !requestID.MatchString(r.RequestID) || !accountID.MatchString(r.AccountID) || (r.Action == "feishu.create" && r.Target != "") || (r.Action == "feishu.append" && !ValidAppendTarget(r.Target)) || r.Query != "" {
 			return errors.New("文档标题、正文、账号或请求标识无效")
 		}
 		return nil
@@ -93,7 +93,7 @@ type Executor struct {
 	command func(context.Context, []string, string) ([]byte, error)
 }
 
-func (r Request) IsWrite() bool { return r.Action == "feishu.create" }
+func (r Request) IsWrite() bool { return r.Action == "feishu.create" || r.Action == "feishu.append" }
 
 // boundedOutput rejects oversized output instead of silently truncating evidence.
 type boundedOutput struct{ b []byte }

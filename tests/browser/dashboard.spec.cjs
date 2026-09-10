@@ -13,7 +13,7 @@ test('dashboard connects, opens a safe chat, sends, disconnects and reconnects',
  const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.goto(url);
  await expect(page.getByRole('heading',{name:'我的 Rooms'})).toBeVisible();
- await expect(page.locator('#version')).toHaveText('本机客户端 v1.0.9');
+ await expect(page.locator('#version')).toHaveText('本机客户端 v1.0.11');
  await page.getByRole('button',{name:'连接',exact:true}).click();
  await expect(page.locator('.status')).toHaveText('已连接',{timeout:10000});
  await expect(page.locator('.room h3')).toHaveText('demo-project');
@@ -21,7 +21,7 @@ test('dashboard connects, opens a safe chat, sends, disconnects and reconnects',
  await expect(page.locator('.details-text')).toContainText('项目名称：demo-project');
  await expect(page.locator('.details-text')).toContainText('项目路径：/workspace/demo-project');
  const popupPromise=page.waitForEvent('popup');await page.getByRole('link',{name:'打开对话 ↗'}).click();const chat=await popupPromise;
- await expect(chat.locator('#client-version')).toHaveText('本机客户端 v1.0.9');
+ await expect(chat.locator('#client-version')).toHaveText('本机客户端 v1.0.11');
  await expect(chat.locator('#project-name')).toHaveText('demo-project');
  await expect(chat.locator('#header-project-name')).toHaveText('demo-project');
  await expect(chat).toHaveTitle('demo-project · agent_room');
@@ -343,4 +343,54 @@ test('explicit commit asks sender for Git identity, reuses it, and never treats 
  await chat.locator('#personal-decline').click();await expect(chat.locator('.answer-text').last()).toContainText('发送者未确认 Git 署名');
  await expect(chat.locator('.answer-text').filter({hasText:'Author/Committer：Sender Alice'})).toHaveCount(2);
  expect(errors).toEqual([]);await chat.close();
+});
+
+test('personal GitHub push previews sender account and exact destination before consent',async({page,context})=>{
+ const commit='a'.repeat(40),id='b'.repeat(32);
+ let pending={id,action:'git.push',sender:'push-ui',title:'推送 sender/project · feature/ui',content:'固定提交：'+commit,push:{input:{repository:'sender/project',branch:'feature/ui',commit},packSize:2048,packSha256:'c'.repeat(64),summary:'更新项目 UI'}};
+ let allow=false,grants=[];
+ await context.route('**/personal',async route=>{
+  if(route.request().method()==='GET')return route.fulfill({json:{pending,status:pending?'等待本人核对 GitHub 账号':'已完成',busy:false}});
+  const body=route.request().postDataJSON();
+  if(body.action==='push-check'){
+   if(!allow)return route.fulfill({status:409,body:'该 GitHub 用户没有目标仓库写权限'});
+   return route.fulfill({json:{id,offer:pending.push,account:{id:123,login:'sender'},expectedRemote:'d'.repeat(40)}});
+  }
+  if(body.action==='push-grant'){grants.push(body);pending=null;return route.fulfill({json:{}});}
+  return route.fulfill({json:[]});
+ });
+ await page.goto(url);
+ await page.locator('#address').fill('127.0.0.1:7482');await page.locator('#session').fill('5'.repeat(32)+'.'+'6'.repeat(64));await page.locator('#name').fill('push-ui');await page.locator('#join').click();
+ const entry=page.locator('.room').filter({hasText:'127.0.0.1:7482'});await expect(entry.locator('.status')).toHaveText('已连接');
+ const opened=page.waitForEvent('popup');await entry.getByRole('link',{name:'打开对话 ↗'}).click();const chat=await opened;
+ await expect(chat.locator('#personal-push')).toBeVisible();await expect(chat.locator('#personal-push-grant')).toBeDisabled();expect(grants).toHaveLength(0);
+ await chat.locator('#personal-push-check').click();await expect(chat.locator('#personal-push-account')).toContainText('没有目标仓库写权限');await expect(chat.locator('#personal-push-grant')).toBeDisabled();
+ allow=true;await chat.locator('#personal-push-check').click();await expect(chat.locator('#personal-push-account')).toContainText('sender/project · feature/ui');await expect(chat.locator('#personal-push-account')).toContainText(commit);await expect(chat.locator('#personal-push-account')).toContainText('sender（ID 123）');
+ expect(grants).toHaveLength(0);
+ await chat.screenshot({path:'dist/personal-push-desktop.png'});
+ await chat.locator('#personal-push-grant').click();await expect(chat.locator('#personal-dialog')).not.toBeVisible();expect(grants).toEqual([{action:'push-grant',id,githubId:123}]);
+ await context.unroute('**/personal');
+});
+
+test('personal document append confirms exact target even with existing create authorization',async({page,context})=>{
+ const id='e'.repeat(32),target='https://bytedance.sg.larkoffice.com/docx/BP2edVezXoSUNMx6KEjlXCUigHc';
+ let pending={id,action:'feishu.append',sender:'append-ui',title:'补充 DevBox 最佳实践',target,content:'完整正文，保留原文档'},grants=[];
+ await context.route('**/personal',async route=>{
+  if(route.request().method()==='GET')return route.fulfill({json:{pending,accountId:'ou_alice123456',appendApproved:false,busy:false}});
+  const b=route.request().postDataJSON();if(b.action==='grant'){grants.push(b);pending=null;return route.fulfill({json:{}});}
+  return route.fulfill({json:[]});
+ });
+ await context.route('**/resources',async route=>{
+  if(route.request().method()==='POST'&&route.request().postDataJSON().action==='feishu-identity')return route.fulfill({json:{openId:'ou_alice123456',name:'Alice'}});
+  return route.continue();
+ });
+ await page.goto(url);
+ await page.locator('#address').fill('127.0.0.1:7483');await page.locator('#session').fill('7'.repeat(32)+'.'+'8'.repeat(64));await page.locator('#name').fill('append-ui');await page.locator('#join').click();
+ const entry=page.locator('.room').filter({hasText:'127.0.0.1:7483'});await expect(entry.locator('.status')).toHaveText('已连接');
+ const opened=page.waitForEvent('popup');await entry.getByRole('link',{name:'打开对话 ↗'}).click();const chat=await opened;
+ await expect(chat.locator('#personal-dialog')).toBeVisible();await expect(chat.locator('#personal-heading')).toContainText('补充正文');
+ await expect(chat.locator('#personal-content')).toContainText(target);await expect(chat.locator('#personal-content')).toContainText('保留原内容');expect(grants).toHaveLength(0);
+ await chat.locator('#personal-identity').click();await expect(chat.locator('#personal-account')).toContainText('Alice');
+ await chat.locator('#personal-grant').click();await expect(chat.locator('#personal-dialog')).not.toBeVisible();expect(grants).toEqual([{action:'grant',id,accountId:'ou_alice123456'}]);
+ await context.unroute('**/personal');await context.unroute('**/resources');await chat.close();
 });

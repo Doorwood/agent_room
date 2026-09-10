@@ -20,6 +20,7 @@ import (
 
 	"agent_romm/internal/buildinfo"
 	"agent_romm/internal/client"
+	"agent_romm/internal/gitpush"
 	"agent_romm/internal/personal"
 	"agent_romm/internal/room"
 )
@@ -67,19 +68,24 @@ type Answer struct {
 	Time        string       `json:"time"`
 }
 type Window struct {
-	projectName       string
-	resource          ResourceFunc
-	resourceEnabled   bool
-	resourceRoot      string
-	resourceCancel    context.CancelFunc
-	personalCancel    context.CancelFunc
-	personalDone      chan struct{}
-	personalRunCancel context.CancelFunc
-	personalClient    string
-	personalPending   *personal.Request
-	personalStatus    string
-	personalAccount   string
-	personalGit       *personal.GitIdentity
+	personalPush          *gitpush.Approval
+	personalPushFailed    string
+	personalPushGranted   string
+	personalPushLast      *gitpush.Receipt
+	projectName           string
+	resource              ResourceFunc
+	resourceEnabled       bool
+	resourceRoot          string
+	resourceCancel        context.CancelFunc
+	personalCancel        context.CancelFunc
+	personalDone          chan struct{}
+	personalRunCancel     context.CancelFunc
+	personalClient        string
+	personalPending       *personal.Request
+	personalStatus        string
+	personalAppendGranted string
+	personalAccount       string
+	personalGit           *personal.GitIdentity
 
 	queue        []room.QueuedMessage
 	userRole     string
@@ -167,7 +173,10 @@ func (w *Window) Close() error {
 		w.personalRunCancel()
 	}
 	w.personalAccount = ""
+	w.personalAppendGranted = ""
 	w.personalGit = nil
+	w.personalPush = nil
+	w.personalPushGranted = ""
 	done := w.personalDone
 	w.mu.Unlock()
 	if done != nil {

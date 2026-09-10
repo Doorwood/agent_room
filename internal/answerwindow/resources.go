@@ -112,7 +112,10 @@ func (w *Window) serveResources(out http.ResponseWriter, r *http.Request) {
 		w.resourceEnabled = in.Enabled
 		if !in.Enabled {
 			w.personalAccount = ""
+			w.personalAppendGranted = ""
 			w.personalGit = nil
+			w.personalPush = nil
+			w.personalPushGranted = ""
 			if w.personalRunCancel != nil {
 				w.personalRunCancel()
 			}

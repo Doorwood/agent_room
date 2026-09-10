@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -27,22 +28,36 @@ type FeishuIdentity struct {
 	OpenID string `json:"openId"`
 }
 type CreateReceipt struct {
-	RequestID  string         `json:"requestId"`
-	Title      string         `json:"title"`
-	Account    FeishuIdentity `json:"account"`
-	State      string         `json:"state"`
-	URL        string         `json:"url,omitempty"`
-	DocumentID string         `json:"documentId,omitempty"`
-	CreatedAt  string         `json:"createdAt"`
+	Action        string         `json:"action,omitempty"`
+	Target        string         `json:"target,omitempty"`
+	ContentSHA256 string         `json:"contentSHA256,omitempty"`
+	RequestID     string         `json:"requestId"`
+	Title         string         `json:"title"`
+	Account       FeishuIdentity `json:"account"`
+	State         string         `json:"state"`
+	URL           string         `json:"url,omitempty"`
+	DocumentID    string         `json:"documentId,omitempty"`
+	CreatedAt     string         `json:"createdAt"`
 }
 
 func (e Executor) lark(ctx context.Context, args []string, input string) ([]byte, error) {
 	if e.command != nil {
 		return e.command(ctx, args, input)
 	}
-	ctx, cancel := context.WithTimeout(ctx, 35*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "lark-cli", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return err
+	}
 	cmd.Dir = os.TempDir()
 	cmd.Stdin = strings.NewReader(input)
 	cmd.Env = append(os.Environ(), "LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1", "LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1")
@@ -160,7 +175,7 @@ func (e Executor) createDocument(ctx context.Context, r Request) (string, error)
 	if identity.OpenID != r.AccountID {
 		return "", errors.New("本机飞书账号已变化，请重新核对；没有创建文档")
 	}
-	receipt := CreateReceipt{RequestID: r.RequestID, Title: r.Title, Account: identity, State: "unknown", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	receipt := CreateReceipt{Action: r.Action, Target: r.Target, ContentSHA256: ContentDigest(r.Content), RequestID: r.RequestID, Title: r.Title, Account: identity, State: "unknown", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	initial, _ := json.Marshal(receipt)
 	result, err := db.ExecContext(ctx, "INSERT OR IGNORE INTO creates(id,digest,receipt)VALUES(?,?,?)", r.RequestID, digest, string(initial))
 	if err != nil {
@@ -175,7 +190,36 @@ func (e Executor) createDocument(ctx context.Context, r Request) (string, error)
 	}
 	// Durable reservation precedes the external write. A crash, timeout or partial
 	// creation stays unknown and is never automatically replayed.
-	b, runErr := e.lark(ctx, []string{"docs", "+create", "--as", "user", "--doc-format", "xml", "--content", "-", "--json"}, documentXML(r.Title, r.Content))
+	args := []string{"docs", "+create", "--as", "user", "--doc-format", "xml", "--content", "-", "--json"}
+	input := documentXML(r.Title, r.Content)
+	if r.Action == "feishu.append" {
+		args = []string{"docs", "+update", "--as", "user", "--doc", r.Target, "--command", "append", "--doc-format", "xml", "--content", "-", "--json"}
+		input = paragraphXML(r.Content)
+		receipt.URL = r.Target
+		receipt.DocumentID = r.Target[strings.LastIndex(r.Target, "/")+1:]
+	}
+	var b []byte
+	var runErr error
+	if r.Action == "feishu.append" {
+		// Never append blindly when the existing document cannot be read. If the
+		// same complete text is already present (e.g. after a lost receipt), verify
+		// that result instead of adding a duplicate under a new turn ID.
+		existing, err := e.readDocumentBody(ctx, r.Target)
+		if err != nil {
+			runErr = err
+		} else if strings.Contains(existing, strings.Join(strings.Fields(r.Content), " ")) {
+			b = []byte(`{"ok":true,"identity":"user"}`)
+		} else {
+			current, accountErr := e.FeishuIdentity(ctx)
+			if accountErr != nil || current.OpenID != r.AccountID || ctx.Err() != nil {
+				runErr = errors.New("账号变化或请求已取消")
+			} else {
+				b, runErr = e.lark(ctx, args, input)
+			}
+		}
+	} else {
+		b, runErr = e.lark(ctx, args, input)
+	}
 	var v struct {
 		OK       bool   `json:"ok"`
 		Identity string `json:"identity"`
@@ -187,13 +231,13 @@ func (e Executor) createDocument(ctx context.Context, r Request) (string, error)
 		} `json:"data"`
 	}
 	if json.Unmarshal(b, &v) == nil {
-		if strings.HasPrefix(v.Data.Document.URL, "https://") && validDocument(v.Data.Document.URL) {
+		if r.Action != "feishu.append" && strings.HasPrefix(v.Data.Document.URL, "https://") && validDocument(v.Data.Document.URL) {
 			receipt.URL = v.Data.Document.URL
 		}
-		if token.MatchString(v.Data.Document.ID) {
+		if r.Action != "feishu.append" && token.MatchString(v.Data.Document.ID) {
 			receipt.DocumentID = v.Data.Document.ID
 		}
-		if runErr == nil && v.OK && v.Identity == "user" && receipt.URL != "" && receipt.DocumentID != "" {
+		if runErr == nil && v.OK && v.Identity == "user" && receipt.URL != "" && receipt.DocumentID != "" && e.documentHasContent(ctx, receipt.URL, r.Content) {
 			receipt.State = "completed"
 		}
 	}

@@ -81,3 +81,5 @@ dialog textarea{border:1px solid #cbd6c8;background:#fafbf8;padding:12px;border-
 .project-brand small{font-size:11px;font-weight:400;color:var(--muted)}
 .workspace header .brand{min-width:0}.workspace header .brand>span:last-child{min-width:0}
 #header-project-name{display:inline-block;max-width: min(48vw,520px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;font-size:16px}
+
+#personal-push-account{white-space:pre-wrap;overflow-wrap:anywhere}#personal-push-grant{background:var(--accent);color:#fff}#personal-push-grant:disabled{opacity:.5}

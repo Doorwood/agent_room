@@ -12,24 +12,29 @@ import (
 	"sync"
 	"time"
 
+	"agent_romm/internal/gitpush"
 	"agent_romm/internal/resources"
 	"agent_romm/internal/room"
 )
 
 type Request struct {
-	Action  string `json:"action,omitempty"`
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
-	Sender  string `json:"sender"`
+	Target  string         `json:"target,omitempty"`
+	Push    *gitpush.Offer `json:"push,omitempty"`
+	Action  string         `json:"action,omitempty"`
+	ID      string         `json:"id"`
+	Title   string         `json:"title"`
+	Content string         `json:"content"`
+	Sender  string         `json:"sender"`
 }
 type Result struct {
+	PushReceipt *gitpush.Receipt         `json:"pushReceipt,omitempty"`
 	GitIdentity *GitIdentity             `json:"gitIdentity,omitempty"`
 	ID          string                   `json:"id"`
 	Receipt     *resources.CreateReceipt `json:"receipt,omitempty"`
 	Error       string                   `json:"error,omitempty"`
 }
 type pending struct {
+	pack []byte
 	Request
 	uid    room.UID
 	client string
@@ -105,6 +110,15 @@ func (b *Broker) Call(ctx context.Context, capability, title, content string) (R
 	return b.call(ctx, capability, "feishu.create", title, content)
 }
 func (b *Broker) call(ctx context.Context, capability, action, title, content string) (Result, error) {
+	return b.callPrepared(ctx, capability, action, title, content, nil, nil)
+}
+func (b *Broker) callPrepared(ctx context.Context, capability, action, title, content string, offer *gitpush.Offer, pack []byte) (Result, error) {
+	return b.callTarget(ctx, capability, action, title, content, "", offer, pack)
+}
+func (b *Broker) Append(ctx context.Context, capability, target, title, content string) (Result, error) {
+	return b.callTarget(ctx, capability, "feishu.append", title, content, target, nil, nil)
+}
+func (b *Broker) callTarget(ctx context.Context, capability, action, title, content, target string, offer *gitpush.Offer, pack []byte) (Result, error) {
 	b.mu.Lock()
 	if capability == "" || capability != b.capability {
 		b.mu.Unlock()
@@ -114,10 +128,10 @@ func (b *Broker) call(ctx context.Context, capability, action, title, content st
 		b.mu.Unlock()
 		return Result{}, err
 	}
-	sum := sha256.Sum256([]byte(string(b.message) + "\x00" + action + "\x00" + title + "\x00" + content))
+	sum := sha256.Sum256([]byte(string(b.message) + "\x00" + action + "\x00" + title + "\x00" + content + "\x00" + target))
 	id := fmt.Sprintf("%x", sum[:16])
-	r := resources.Request{Action: "feishu.create", Title: title, Content: content, RequestID: id, AccountID: "ou_validation000"}
-	if action != "git.commit" {
+	r := resources.Request{Action: action, Target: target, Title: title, Content: content, RequestID: id, AccountID: "ou_validation000"}
+	if action != "git.commit" && action != "git.push" {
 		if err := r.Validate(); err != nil {
 			b.mu.Unlock()
 			return Result{}, err
@@ -129,7 +143,7 @@ func (b *Broker) call(ctx context.Context, capability, action, title, content st
 			b.mu.Unlock()
 			return Result{}, errors.New("本轮创建请求数量已达上限")
 		}
-		p = &pending{Request: Request{Action: action, ID: id, Title: title, Content: content, Sender: b.actor.Name}, uid: b.actor.UID, ready: make(chan struct{})}
+		p = &pending{pack: pack, Request: Request{Target: target, Push: offer, Action: action, ID: id, Title: title, Content: content, Sender: b.actor.Name}, uid: b.actor.UID, ready: make(chan struct{})}
 		b.pending[id] = p
 	}
 	b.mu.Unlock()
@@ -206,20 +220,29 @@ func (b *Broker) Resolve(ctx context.Context, uid room.UID, client string, resul
 	if p.result != nil {
 		return nil
 	}
-	if result.Error != "" && (result.GitIdentity != nil || result.Receipt != nil) {
+	if result.Error != "" && (result.GitIdentity != nil || result.Receipt != nil || result.PushReceipt != nil) {
 		return errors.New("ambiguous result")
 	}
-	if p.Action == "git.commit" && result.GitIdentity != nil && result.Receipt == nil {
+	if p.Action == "git.push" && result.PushReceipt != nil && result.GitIdentity == nil && result.Receipt == nil {
+		if p.Push == nil || !result.PushReceipt.Valid(p.ID, p.Push.Input) {
+			return errors.New("invalid push receipt")
+		}
+		copy := *result.PushReceipt
+		result.PushReceipt = &copy
+	} else if p.Action == "git.commit" && result.GitIdentity != nil && result.Receipt == nil && result.PushReceipt == nil {
 		if err := result.GitIdentity.Validate(); err != nil {
 			return err
 		}
 		copy := *result.GitIdentity
 		result.GitIdentity = &copy
 		result.Error = ""
-	} else if p.Action != "git.commit" && result.GitIdentity == nil && result.Receipt != nil {
+	} else if (p.Action == "feishu.create" || p.Action == "feishu.append" || p.Action == "") && result.GitIdentity == nil && result.Receipt != nil && result.PushReceipt == nil {
 		r := result.Receipt
 		if r.RequestID != p.ID || r.Title != p.Title || (r.State != "completed" && r.State != "unknown") || r.Account.OpenID == "" {
 			return errors.New("invalid creation receipt")
+		}
+		if p.Action == "feishu.append" && (r.Target != p.Target || r.ContentSHA256 != resources.ContentDigest(p.Content) || r.Action != p.Action || (r.State == "completed" && r.URL != p.Target)) {
+			return errors.New("invalid append receipt")
 		}
 		// Round-trip the typed receipt: arbitrary CLI fields and credentials are excluded.
 		encoded, _ := json.Marshal(r)
@@ -229,6 +252,7 @@ func (b *Broker) Resolve(ctx context.Context, uid room.UID, client string, resul
 		result.Error = ""
 	} else if result.Error != "" {
 		result.GitIdentity = nil
+		result.PushReceipt = nil
 		result.Receipt = nil
 		result.Error = "发送者尚未授权、拒绝创建或本机创建失败。请询问该发送者处理；禁止使用 Host 或其他成员账号。"
 	} else {

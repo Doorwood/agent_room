@@ -112,7 +112,7 @@ window.addEventListener('agent-room-create-document',async event=>{
 
 // A model request arrives on the authenticated sender's local window only.
 const personalDialog=get('personal-dialog');
-let personalPending=null,personalAccount=null,personalShown='',personalBusy=false;
+let personalPending=null,personalAccount=null,personalShown='',personalBusy=false,pushAccount=null;
 async function personalPost(body){
  const r=await fetch('personal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  if(!r.ok)throw new Error(await r.text());return r.json();
@@ -125,15 +125,20 @@ async function personalPoll(){
   get('personal-banner-text').textContent=s.status||'';
   get('personal-status').textContent=s.status||'';
   get('personal-decline').disabled=!!s.busy;get('personal-identity').disabled=!!s.busy;
-  if(changed){personalAccount=null;get('personal-account').textContent='';get('personal-grant').disabled=true;}
+  if(changed){pushAccount=null;get('personal-push-account').textContent='';get('personal-push-grant').disabled=true;personalAccount=null;get('personal-account').textContent='';get('personal-grant').disabled=true;}
   if(!s.pending){if(personalDialog.open&&!personalBusy)personalDialog.close();return;}
   get('personal-sender').textContent='本次请求来自：'+s.pending.sender;
   get('personal-title').textContent=s.pending.title;get('personal-content').textContent=s.pending.content;
-  const git=s.pending.action==='git.commit';
-  get('personal-heading').textContent=git?'确认你的 Git 提交署名':'你的飞书文档创建请求';
-  get('personal-content-label').textContent=git?'核对提交范围':'核对完整正文';
-  get('personal-feishu').hidden=git;get('personal-git').hidden=!git;
-  const authorized=git?!!s.gitIdentity:!!s.accountId;
+  const git=s.pending.action==='git.commit',push=s.pending.action==='git.push',append=s.pending.action==='feishu.append';
+  get('personal-heading').textContent=push?'确认你的 GitHub 推送':git?'确认你的 Git 提交署名':append?'确认向已有飞书文档补充正文':'你的飞书文档创建请求';
+  get('personal-feishu-description').textContent=append?'使用你的本机飞书账号向指定文档末尾补充正文，保留已有内容。每次补写单独确认，不复用创建许可。':'仅使用你的本机飞书账号。授权后本次连接中由你要求创建的新文档可自动创建，其他成员不能借用；断开或撤销后失效。';
+  get('personal-grant').textContent=append?'确认目标并补充正文':'授权我的账号并继续';
+  get('personal-content-label').textContent=(git||push)?'核对提交范围':'核对完整正文';
+  get('personal-feishu').hidden=git||push;get('personal-git').hidden=!git;get('personal-push').hidden=!push;
+  get('personal-push-check').disabled=!!s.busy;get('personal-push-grant').disabled=!!s.busy||!pushAccount;
+  if(push&&s.pending.push)get('personal-content').textContent=s.pending.content+'\n\n'+s.pending.push.summary+'\n提交包：'+Math.ceil(s.pending.push.packSize/1024)+' KiB';
+  if(append)get('personal-content').textContent='目标文档：'+s.pending.target+'\n操作：末尾追加，保留原内容\n\n'+s.pending.content;
+  const authorized=push?!!s.pushApproved:git?!!s.gitIdentity:append?!!s.appendApproved:!!s.accountId;
   if(!authorized&&personalShown!==s.pending.id&&!document.querySelector('dialog[open]')){personalShown=s.pending.id;personalDialog.showModal();}
  }catch{}finally{setTimeout(personalPoll,1200);}
 }
@@ -170,4 +175,36 @@ get('personal-git-grant').onclick=async()=>{
  try{await personalPost({action:'git-grant',id:personalPending.id,gitIdentity:identity});personalShown='';get('personal-git-status').textContent='';personalDialog.close();}
  catch(e){get('personal-git-status').textContent=e.message;}
  finally{personalBusy=false;get('personal-git-grant').disabled=false;}
+};
+
+get('personal-push-check').onclick=async()=>{
+ if(personalBusy||personalPending?.action!=='git.push')return;
+ personalBusy=true;pushAccount=null;get('personal-push-grant').disabled=true;
+ const id=personalPending.id;
+ try{
+  const a=await personalPost({action:'push-check',id});
+  if(personalPending?.id!==id)return;
+  pushAccount=a.account;
+  get('personal-push-account').textContent='GitHub 账号：'+a.account.login+'（ID '+a.account.id+'）\n目标：'+a.offer.input.repository+' · '+a.offer.input.branch+'\n提交：'+a.offer.input.commit+'\n远端当前：'+(a.expectedRemote||'分支尚不存在，将新建');
+  get('personal-push-grant').disabled=false;
+ }catch(e){get('personal-push-account').textContent=e.message;}
+ finally{personalBusy=false;}
+};
+get('personal-push-grant').onclick=async()=>{
+ if(personalBusy||!pushAccount||personalPending?.action!=='git.push')return;
+ personalBusy=true;get('personal-push-grant').disabled=true;
+ try{await personalPost({action:'push-grant',id:personalPending.id,githubId:pushAccount.id});personalDialog.close();}
+ catch(e){get('personal-push-account').textContent=e.message;pushAccount=null;}
+ finally{personalBusy=false;}
+};
+get('push-history').onclick=async()=>{
+ try{const items=await personalPost({action:'push-history'});
+ get('push-history-result').textContent=items.length?items.map(r=>r.input.repository+' · '+r.input.branch+'\n'+r.input.commit+'\n账号：'+r.account.login+' · '+({completed:'已完成',unknown:'待核实',rejected:'已拒绝'}[r.state]||r.state)+(r.url?'\n'+r.url:'')+(r.error?'\n'+r.error:'')).join('\n\n'):'暂无本机推送回执';
+ }catch(e){get('push-history-result').textContent=e.message;}
+};
+
+get('resource-document-history').onclick=async()=>{
+ const el=get('resource-document-receipts');el.hidden=false;el.textContent='正在读取本机回执…';
+ try { const items=await personalPost({action:'document-history'});el.textContent=items.length?items.map(r=>[r.createdAt,r.state==='completed'?(r.contentSHA256?'正文已核验':'旧版完成回执，正文未核验'):'待核实，请检查文档，勿重复写入',r.title,r.url||r.target||'未取得链接','请求：'+r.requestId].join('\n')).join('\n\n'):'暂无本机文档回执'; }
+ catch(e){el.textContent=e.message;}
 };

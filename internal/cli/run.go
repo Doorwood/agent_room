@@ -67,8 +67,14 @@ func Run(ctx context.Context, args []string, out, diagnostics io.Writer, d Depen
 	switch args[0] {
 	case "--version", "version":
 		return runVersion(args[1:], out, diagnostics)
+	case "personal-push":
+		return runPersonalPush(ctx, args[1:], out, diagnostics, d)
+	case "personal-git-credential":
+		return runPersonalGitCredential(args[1:], out, d)
 	case "personal-commit":
 		return runPersonalCommit(ctx, args[1:], out, diagnostics, d)
+	case "personal-append":
+		return runPersonalAppend(ctx, args[1:], out, diagnostics, d)
 	case "personal-create":
 		return runPersonalCreate(ctx, args[1:], out, diagnostics, d)
 	case "doctor":

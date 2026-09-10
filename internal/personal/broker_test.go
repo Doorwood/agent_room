@@ -148,7 +148,7 @@ func TestNaturalLanguageTurnGetsBoundPersonalCommand(t *testing.T) {
 	if err != nil || !strings.Contains(inner.text, "personal-create --state") || !strings.Contains(inner.text, "禁止调用 Host") || !strings.Contains(inner.text, "创建一个规划飞书文档") {
 		t.Fatal(inner.text, err)
 	}
-	if !strings.Contains(inner.text, "personal-commit --state") || !strings.Contains(inner.text, "仅要求优化、修复或修改代码不代表允许 commit") || !strings.Contains(inner.text, "绝不能使用 Host 的 GitHub/SSH 凭据") {
+	if !strings.Contains(inner.text, "personal-commit --state") || !strings.Contains(inner.text, "仅要求优化、修复或修改代码不代表允许 commit") || !strings.Contains(inner.text, "绝不能改用 Host 凭据") || !strings.Contains(inner.text, "personal-push --state") {
 		t.Fatal("Git routing policy missing")
 	}
 	if b.actor.UID != 42 || b.actor.Name != "alice" {

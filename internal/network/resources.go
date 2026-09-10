@@ -20,6 +20,8 @@ import (
 )
 
 type ResourceRequest struct {
+	PushID         string            `json:"pushId,omitempty"`
+	PushOffset     int               `json:"pushOffset,omitempty"`
 	ClientID       string            `json:"clientId,omitempty"`
 	PersonalResult *personal.Result  `json:"personalResult,omitempty"`
 	Action         string            `json:"action"`
@@ -28,6 +30,7 @@ type ResourceRequest struct {
 	Question       string            `json:"question,omitempty"`
 }
 type ResourceReply struct {
+	PushData     []byte            `json:"pushData,omitempty"`
 	Personal     *personal.Request `json:"personal,omitempty"`
 	SummaryError string            `json:"summaryError,omitempty"`
 	Type         string            `json:"type"`
@@ -166,7 +169,7 @@ func (s *Server) serveResources(c net.Conn, m room.Member, token string) {
 	if readResource(c, &req) != nil {
 		return
 	}
-	if req.Action == "personal-pending" || req.Action == "personal-result" {
+	if req.Action == "personal-pending" || req.Action == "personal-result" || req.Action == "personal-push-chunk" {
 		s.servePersonalResource(c, m, req)
 		return
 	}

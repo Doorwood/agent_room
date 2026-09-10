@@ -251,8 +251,16 @@ func (s *Server) handle(c net.Conn, sessions Sessions) {
 }
 func (s *Server) manage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Path == "/personal-push" {
+		s.servePersonalPush(w, r)
+		return
+	}
 	if r.URL.Path == "/personal-commit" {
 		s.servePersonalCommit(w, r)
+		return
+	}
+	if r.URL.Path == "/personal-append" {
+		s.servePersonalAppend(w, r)
 		return
 	}
 	if r.URL.Path == "/personal-create" {

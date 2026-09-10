@@ -2,6 +2,26 @@
 
 A Linux host creates a shared project session. Members on macOS or Linux request access using its IP and session ID, then share a Codex task queue, terminal and browser conversation after host approval.
 
+## 1.0.11 更新
+
+- 新增个人飞书文档补写：明确指定 docx 链接，发送者在本机核对账号、目标和正文后，追加到文档末尾，保留已有内容。
+- 补写每次单独确认，不复用创建许可；相同请求保留回执，未知结果不自动重试。
+- 创建与补写后回读正文核验，避免仅返回链接就报告完成；适当延长文档操作超时，并在取消时停止 CLI 子进程组。
+- 资源授权面板可查看最近 10 次本机文档回执。旧版回执明确标注未验证正文。
+
+Host 和客户端均需升级并重启。使用示例：“将准备好的正文补充到 https://你的租户/docx/文档ID”。目前仅支持末尾追加，不支持覆盖或段落替换；全文读取超过安全上限时保持待核实。真实飞书补写尚待发送者升级后验收。
+
+```sh
+npm install -g menmu-agent-room@1.0.11 --registry=https://registry.npmjs.org/
+agent_room --version
+```
+
+## 1.0.10
+
+Personal mode now supports GitHub pushes using the sender's local account. Explicitly request a repository, branch and commit; review the account and exact destination in the client, then confirm that push. Credentials remain on the sender's computer. Only new branches and fast-forward updates are supported; uncertain results are retained as receipts and are not automatically retried.
+
+The sender needs Git 2.32+ and GitHub CLI (`gh auth login --hostname github.com --web`). Upgrade and restart both Host and clients to enable this feature. This release also includes the desktop UI improvements and project-name header from 1.0.9.
+
 ## Install with npm
 
 Recommended user setup (Node.js 20+, macOS/Linux, no sudo):

@@ -1,6 +1,7 @@
 package network
 
 import (
+	"agent_romm/internal/gitpush"
 	"agent_romm/internal/personal"
 	"agent_romm/internal/room"
 	"context"
@@ -31,6 +32,8 @@ func (s *Server) servePersonalResource(c net.Conn, m room.Member, req ResourceRe
 		reply.Error = "个人创建不可用或没有协作权限"
 	} else if req.Action == "personal-pending" {
 		reply.Personal, err = b.Next(s.ctx, m.UID, req.ClientID)
+	} else if req.Action == "personal-push-chunk" {
+		reply.PushData, err = b.PushChunk(s.ctx, m.UID, req.ClientID, req.PushID, req.PushOffset)
 	} else if req.PersonalResult == nil {
 		err = errors.New("missing result")
 	} else {
@@ -42,11 +45,18 @@ func (s *Server) servePersonalResource(c net.Conn, m room.Member, req ResourceRe
 	writeQuery(c, reply)
 }
 func (s *Server) servePersonalCreate(out http.ResponseWriter, r *http.Request) {
+	s.servePersonalDocument(out, r, false)
+}
+func (s *Server) servePersonalAppend(out http.ResponseWriter, r *http.Request) {
+	s.servePersonalDocument(out, r, true)
+}
+func (s *Server) servePersonalDocument(out http.ResponseWriter, r *http.Request, appendDoc bool) {
 	if r.Method != "POST" {
 		out.WriteHeader(405)
 		return
 	}
 	var in struct {
+		Target     string `json:"target,omitempty"`
 		Capability string `json:"capability"`
 		Title      string `json:"title"`
 		Content    string `json:"content"`
@@ -65,7 +75,16 @@ func (s *Server) servePersonalCreate(out http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.NewResponseController(out).SetWriteDeadline(time.Now().Add(6 * time.Minute))
-	result, err := b.Call(r.Context(), in.Capability, in.Title, in.Content)
+	var result personal.Result
+	var err error
+	if appendDoc {
+		result, err = b.Append(r.Context(), in.Capability, in.Target, in.Title, in.Content)
+	} else if in.Target != "" {
+		http.Error(out, "unexpected target", 400)
+		return
+	} else {
+		result, err = b.Call(r.Context(), in.Capability, in.Title, in.Content)
+	}
 	if err != nil {
 		http.Error(out, err.Error(), 409)
 		return
@@ -141,4 +160,48 @@ func (s *Server) servePersonalCommit(out http.ResponseWriter, r *http.Request) {
 	}
 	out.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(out).Encode(result)
+}
+
+func PersonalPush(ctx context.Context, privateDir string, body io.Reader, out io.Writer) error {
+	return personalOperation(ctx, privateDir, "personal-push", body, out)
+}
+func (s *Server) servePersonalPush(out http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		out.WriteHeader(405)
+		return
+	}
+	var in struct {
+		Capability string        `json:"capability"`
+		Push       gitpush.Input `json:"push"`
+	}
+	d := json.NewDecoder(http.MaxBytesReader(out, r.Body, 8192))
+	d.DisallowUnknownFields()
+	if d.Decode(&in) != nil || d.Decode(new(any)) != io.EOF || in.Push.Validate() != nil {
+		http.Error(out, "invalid push request", 400)
+		return
+	}
+	s.mu.Lock()
+	b := s.personal
+	s.mu.Unlock()
+	if b == nil {
+		http.Error(out, "个人推送不可用，请升级 Host", 503)
+		return
+	}
+	root, err := s.store.ProjectRoot(r.Context(), s.room)
+	if err != nil {
+		http.Error(out, "项目不可用", 503)
+		return
+	}
+	http.NewResponseController(out).SetWriteDeadline(time.Now().Add(6 * time.Minute))
+	result, err := b.Push(r.Context(), in.Capability, root, in.Push)
+	if err != nil {
+		http.Error(out, err.Error(), 409)
+		return
+	}
+	out.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(out).Encode(result)
+}
+
+func PersonalAppend(ctx context.Context, privateDir string, body io.Reader, out io.Writer) error {
+	return personalOperation(ctx, privateDir, "personal-append", body, out)
 }

@@ -22,6 +22,10 @@ func fakeCreator(t *testing.T, dir, account string, calls *atomic.Int32, fail bo
 			b, _ := json.Marshal(map[string]any{"identity": "user", "available": true, "tokenStatus": "ready", "onBehalfOf": map[string]string{"userName": "Test User", "openId": account}, "secret": "never-forward-this"})
 			return b, nil
 		}
+		if len(args) > 1 && args[1] == "+fetch" {
+			b, _ := json.Marshal(map[string]any{"ok": true, "identity": "user", "data": map[string]any{"document": map[string]string{"content": documentXML(createRequest().Title, createRequest().Content)}}})
+			return b, nil
+		}
 		if !reflect.DeepEqual(args, []string{"docs", "+create", "--as", "user", "--doc-format", "xml", "--content", "-", "--json"}) {
 			t.Errorf("unexpected command: %v", args)
 		}
