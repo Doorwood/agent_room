@@ -218,7 +218,7 @@ func (s *Server) dispatch(ctx context.Context, w sessionWriter, actor room.Actor
 		}
 		if role != "roommate" {
 			switch e.Method {
-			case "ack", "heartbeat", "who", "members":
+			case "ack", "heartbeat", "who", "members", "agents":
 			default:
 				return false, w.fail(e.ID, "read-only-role")
 			}
@@ -277,11 +277,14 @@ func (s *Server) dispatch(ctx context.Context, w sessionWriter, actor room.Actor
 			return invalid()
 		}
 		out = in
-	case "queue", "status", "who", "members", "diff":
+	case "queue", "status", "who", "members", "agents", "diff":
 		if _, de := protocol.DecodeBody[protocol.Empty](e.Body); de != nil {
 			return invalid()
 		}
 		switch e.Method {
+		case "agents":
+			snap, e := s.deps.Coordinator.Snapshot(ctx)
+			out, err = snap.Agents, e
 		case "queue", "status":
 			out, err = s.deps.Coordinator.Snapshot(ctx)
 		case "who":

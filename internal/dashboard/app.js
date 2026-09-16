@@ -1,5 +1,6 @@
 const $ = id => document.getElementById(id);
 const labels = {disconnected:'未连接',connecting:'连接中',pending:'等待审批',connected:'已连接',reconnecting:'正在重连',disconnecting:'正在断开',error:'连接失败'};
+let localAgents=[], installedAgents=[], invitationRoom=null, invitationAttempt=null;
 let data = [], busy = false, signature = '';
 async function post(action, body) {
  const response = await fetch(action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(12000)});
@@ -36,6 +37,14 @@ function render() {
    catch(error){note.textContent=error.message;button.disabled=false;}
   });
   actions.append(button);
+  const invite=document.createElement('button');invite.className='secondary';invite.textContent='邀请本机 Agent';invite.disabled=room.status!=='connected';invite.onclick=()=>openAgentInvitation(room);actions.append(invite);
+  const workers=document.createElement('div');workers.className='local-agent-list';
+  for(const a of localAgents.filter(a=>a.roomId===room.id)){
+    const row=document.createElement('p');row.textContent=(a.name || a.provider)+' · '+({checking:'健康检查中',idle:'健康 · 待命',working:'工作中',offline:'离线',error:'需检查'}[a.state] || a.state)+' · @agent:'+a.workerId+(a.detail?' · '+a.detail:'');
+    const leave=document.createElement('button');leave.className='secondary';leave.textContent='移除 Agent';leave.onclick=async()=>{try{await post('agent-leave',{id:a.id});signature='';await refresh();}catch(e){note.textContent=e.message}};row.append(leave);
+    if(a.lastHealthy && !a.lastHealthy.startsWith('0001')){const info=document.createElement('span');info.textContent=' · 最近成功 '+new Date(a.lastHealthy).toLocaleString()+' · 检查 '+((a.checkMillis||0)/1000).toFixed(1)+' 秒';row.append(info);}
+    if(a.state==='idle'||a.state==='error'){const retry=document.createElement('button');retry.className='secondary';retry.textContent='重新检查';retry.onclick=async()=>{try{await post('agent-recheck',{id:a.id});signature='';await refresh()}catch(e){note.textContent=e.message}};row.append(retry)}workers.append(row);
+  }
   if (room.url) {
    const link=document.createElement('a');link.className='open';link.textContent='打开对话 ↗';link.href=room.url;link.target='_blank';link.rel='noopener noreferrer';actions.append(link);
   }
@@ -45,7 +54,7 @@ function render() {
    remove.disabled=true;
    try{await post('remove',{id:room.id});signature='';await refresh();}catch(error){note.textContent=error.message;remove.disabled=false;}
   });actions.append(remove);
-  card.append(top,title,meta,details,note,actions);$('rooms').append(card);
+  card.append(top,title,meta,details,note,actions,workers);$('rooms').append(card);
  }
 }
 async function refresh() {
@@ -56,7 +65,9 @@ async function refresh() {
   const state=await response.json();
   $('service-status').textContent='';$('version').textContent='本机客户端 v'+state.version;
   $('warnings').textContent=(state.warnings || []).join('\n');
-  const next=JSON.stringify(state.rooms);
+  const agentsResponse=await fetch('agents',{cache:'no-store',signal:AbortSignal.timeout(10000)});
+  if(agentsResponse.ok){const agents=await agentsResponse.json();localAgents=agents.running || [];installedAgents=agents.installed || [];}
+  const next=JSON.stringify([state.rooms,localAgents]);
   if (next!==signature) {
    // Do not replace an in-progress nickname input during background polling.
    if (!$('rooms').contains(document.activeElement) || document.activeElement.tagName!=='INPUT') {data=state.rooms;signature=next;render();}
@@ -74,3 +85,19 @@ $('join-form').addEventListener('submit',async event=>{
 });
 $('search').addEventListener('input',render);$('refresh').addEventListener('click',()=>{signature='';refresh();});
 refresh();setInterval(refresh,2000);
+
+function openAgentInvitation(room){
+ invitationRoom=room;invitationAttempt=null;$('invite-agent-name').value='';$('invite-room-name').textContent=room.projectName || room.address;$('invite-project').value=room.kind==='owned'?(room.project || ''):'';$('invite-scope').value='host';updateInviteScope();$('invite-mode').value='review';$('invite-agent-status').textContent='';
+ const select=$('invite-provider');select.replaceChildren();for(const a of installedAgents){const option=new Option(a.name+(a.installed?' · 已检测到':' · 未安装'),a.provider);option.disabled=!a.installed;select.add(option)};select.value=installedAgents.find(a=>a.installed)?.provider || '';
+ $('agent-detection').textContent='检测到 CLI 不代表已登录。请在本机完成 codex login、cursor-agent login 或 claude auth login。';$('invite-agent-submit').disabled=!select.value;$('invite-agent-dialog').showModal();
+}
+$('invite-agent-close').onclick=()=>$('invite-agent-dialog').close();
+$('invite-agent-form').onsubmit=async e=>{
+ e.preventDefault();const body={id:invitationRoom.id,agentName:$('invite-agent-name').value.trim(),provider:$('invite-provider').value,workspaceScope:$('invite-scope').value,project:$('invite-scope').value==='local'?$('invite-project').value:'',mode:$('invite-mode').value};
+ if(!invitationAttempt || JSON.stringify(invitationAttempt.body)!==JSON.stringify(body))invitationAttempt={body,request:{...body,invitation:crypto.randomUUID().replaceAll('-','')}};
+ $('invite-agent-submit').disabled=true;$('invite-agent-status').textContent='正在向 Host 注册本机 Agent…';
+ try{await post('agent-invite',invitationAttempt.request);$('invite-agent-dialog').close();signature='';await refresh();}catch(error){$('invite-agent-status').textContent=error.message;}finally{$('invite-agent-submit').disabled=false;}
+};
+
+function updateInviteScope(){const local=$('invite-scope').value==='local';$('invite-project-label').hidden=!local;$('invite-project').required=local;}
+$('invite-scope').onchange=updateInviteScope;

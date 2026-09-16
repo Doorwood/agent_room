@@ -25,23 +25,25 @@ import (
 var assets embed.FS
 
 type connection struct {
+	ctx    context.Context
 	room   Room
 	cancel context.CancelFunc
 	done   chan struct{}
 }
 type Server struct {
-	probe     *localprobe.Server
-	workers   sync.WaitGroup
-	catalog   Catalog
-	connector Connector
-	mu        sync.Mutex
-	active    map[string]*connection
-	closed    bool
-	ctx       context.Context
-	cancel    context.CancelFunc
-	listener  net.Listener
-	http      *http.Server
-	path      string
+	localAgents map[string]*localAgent
+	probe       *localprobe.Server
+	workers     sync.WaitGroup
+	catalog     Catalog
+	connector   Connector
+	mu          sync.Mutex
+	active      map[string]*connection
+	closed      bool
+	ctx         context.Context
+	cancel      context.CancelFunc
+	listener    net.Listener
+	http        *http.Server
+	path        string
 }
 
 func Start(ctx context.Context, catalog Catalog, connector Connector) (*Server, error) {
@@ -57,7 +59,7 @@ func Start(ctx context.Context, catalog Catalog, connector Connector) (*Server, 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Server{catalog: catalog, connector: connector, active: map[string]*connection{}, listener: l, path: "/" + hex.EncodeToString(token[:]) + "/", ctx: ctx, cancel: cancel}
+	s := &Server{localAgents: map[string]*localAgent{}, catalog: catalog, connector: connector, active: map[string]*connection{}, listener: l, path: "/" + hex.EncodeToString(token[:]) + "/", ctx: ctx, cancel: cancel}
 	s.http = &http.Server{Handler: http.HandlerFunc(s.serve), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
 	go s.http.Serve(l)
 	// Discovery is optional; a busy probe port must not prevent local management.
@@ -136,12 +138,13 @@ func (s *Server) connect(r Room) error {
 	r.Status = "connecting"
 	r.Detail = "正在连接 host"
 	r.URL = ""
-	c := &connection{room: r, cancel: cancel, done: make(chan struct{})}
+	c := &connection{ctx: ctx, room: r, cancel: cancel, done: make(chan struct{})}
 	s.active[r.ID] = c
 	s.workers.Add(1)
 	go func() {
 		defer s.workers.Done()
 		defer close(c.done)
+		defer cancel()
 		update := func(status, detail, url string) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
@@ -230,6 +233,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			data, _ := assets.ReadFile(file)
 			w.Header().Set("Content-Type", contentType)
 			w.Write(data)
+		case "agents":
+			s.agentList(w)
 		case "rooms":
 			rooms, warnings := s.list()
 			w.Header().Set("Content-Type", "application/json")
@@ -255,6 +260,50 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	media, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if media != "application/json" {
 		http.Error(w, "JSON required", 415)
+		return
+	}
+	if route == "agent-invite" || route == "agent-leave" || route == "agent-recheck" {
+		var body inviteBody
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
+		dec.DisallowUnknownFields()
+		if dec.Decode(&body) != nil || dec.Decode(new(any)) != io.EOF {
+			http.Error(w, "invalid request", 400)
+			return
+		}
+		if route == "agent-recheck" {
+			s.mu.Lock()
+			a := s.localAgents[body.ID]
+			if a == nil || a.State == "offline" || a.State == "working" || a.State == "checking" {
+				s.mu.Unlock()
+				http.Error(w, "当前状态不能重新检查", 409)
+				return
+			}
+			select {
+			case a.recheck <- struct{}{}:
+			default:
+			}
+			s.mu.Unlock()
+			json.NewEncoder(w).Encode(map[string]string{"state": "queued"})
+			return
+		}
+		if route == "agent-leave" {
+			s.mu.Lock()
+			a := s.localAgents[body.ID]
+			if a != nil {
+				a.cancel()
+				delete(s.localAgents, body.ID)
+			}
+			s.mu.Unlock()
+			json.NewEncoder(w).Encode(map[string]string{"state": "left"})
+			return
+		}
+		a, e := s.inviteAgent(r.Context(), body)
+		if e != nil {
+			http.Error(w, e.Error(), 400)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(a)
 		return
 	}
 	var body struct {

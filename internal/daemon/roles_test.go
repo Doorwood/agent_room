@@ -48,3 +48,28 @@ func TestReadOnlyRolesRejectAllMainMutations(t *testing.T) {
 		}
 	}
 }
+
+func TestVisitorsCanReadAgentDirectoryWithoutQueuePayload(t *testing.T) {
+	f := &fixture{}
+	s := &Server{deps: Dependencies{Members: roleFixture{fixture: f, role: "visitor"}, Coordinator: f}}
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	b.SetReadDeadline(time.Now().Add(time.Second))
+	done := make(chan error, 1)
+	go func() {
+		_, e := s.dispatch(context.Background(), sessionWriter{a, protocol.NewWriter(a), time.Second}, room.Actor{UID: 1002}, "", protocol.Envelope{Version: 1, Kind: protocol.KindRequest, ID: strings.Repeat("c", 32), Method: "agents", Body: json.RawMessage(`{}`)})
+		done <- e
+	}()
+	env, e := protocol.NewReader(b, protocol.MaxFrameBytes).Read()
+	if e != nil || env.Kind != protocol.KindResponse {
+		t.Fatal(env, e)
+	}
+	var members []room.AgentMember
+	if e = json.Unmarshal(env.Body, &members); e != nil {
+		t.Fatal("directory response exposed a queue snapshot", e)
+	}
+	if e = <-done; e != nil {
+		t.Fatal(e)
+	}
+}

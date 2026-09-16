@@ -2,6 +2,55 @@
 
 A Linux host creates a shared project session. Members on macOS or Linux request access using its IP and session ID, then share a Codex task queue, terminal and browser conversation after host approval.
 
+## 1.0.15 更新
+
+- Dashboard 支持邀请本机 Codex、Cursor、Claude Code，可填写 Agent 名称；Room 显示为“成员名称-Agent 名称”，例如 `lumos-代码评审`，留空使用工具名称。
+- 成员名称由 Host 的认证身份确定，权限与唯一 @ ID 不受自定义名称影响。
+- 本机 Codex 使用邀请者机器的文件登录与独立临时会话，支持只读分析和编辑工作副本，不加载个人 MCP、插件或共享主会话；默认沿用 Host 项目副本隔离和依赖产物交接。
+- 包含 1.0.14 的协作规划修复：独立进程仅复用 Codex 文件登录，不再因 Host 加载 MCP 而拒绝多 Agent 规划。
+
+```sh
+npm install -g menmu-agent-room@1.0.15 --registry=https://registry.npmjs.org/
+agent_room --version
+```
+
+Host 和邀请者 Dashboard 都需升级并重启，再邀请 Agent。Codex 需在本机完成 `codex login`；不支持文件登录或隔离校验失败时拒绝执行，不回退使用 Host 账号。真实 Codex 只读与编辑测试通过；Cursor 服务连接问题需在执行机器单独排查。
+
+以下为历史版本说明，其限制以以上更新为准。
+
+## 1.0.13 更新
+
+- 修复单独 @Codex 被错误送入只读协作规划的问题，直接使用原项目会话；单独 @其他成员直接派发，多成员才规划依赖。
+- 邀请本机 Agent 默认使用 Host 项目隔离副本，无需本机克隆项目或填写本机项目路径。
+- 每项任务使用独立副本，修改回存 Host 独立目录，下游任务可接收上游文件变更；同文件冲突或 Host 基线变化时停止，不覆盖。
+- Host 主项目不自动合并、提交或推送。结果消息提供副本及回执路径，供验收后安排合并。
+
+```sh
+npm install -g menmu-agent-room@1.0.13 --registry=https://registry.npmjs.org/
+agent_room --version
+agent_room dashboard
+```
+
+Host、Dashboard 和客户端需同时更新并重启。Agent 仍使用本机账号运行；Host 副本基于 Git 工作区，最多 32 MiB / 10000 文件，排除 Git 元数据、忽略文件、.env、.npmrc、密钥目录及链接，不自动安装环境依赖。原有本机项目模式保留。多 Agent 的自然语言规划仍要求 Host 的只读模型能力可用；本次仅解除单成员任务的不必要规划限制。
+
+文件隔离、冲突、TLS 传输、模拟 CLI 和页面回归已通过；真实 Cursor/Claude 云服务效果不由模拟测试保证。
+
+## 1.0.12 更新
+
+- Room 区分人类领导组和 Agent 工作组，支持 Codex、Claude Code、Cursor 成员。
+- Dashboard 可邀请本机安装的 Cursor / Claude Code，选择本机项目和只读或工作模式；其他 roommate 可 @ 该成员派工。
+- 直接描述协作目标，模型分析步骤与依赖：例如“Claude 负责 review，Codex 开发”，先开发再评审，不按 @ 出现顺序执行。页面入口为“描述协作目标”。
+- 支持多个依赖、结果交接、执行归属、停止和回执；失败或结果未知时不继续下游、不自动重放。
+- 新增飞书文字机器人入口，可按配置查询 Room、派工和读取获准群消息。
+
+```sh
+npm install -g menmu-agent-room@1.0.12 --registry=https://registry.npmjs.org/
+agent_room --version
+agent_room dashboard
+```
+
+Host、Dashboard 和客户端均需更新并重新启动。Agent 在邀请者的机器和获准项目目录执行；机器间不会自动同步代码。自然语言规划依赖 Host 的只读模型能力，若扩展配置无法保证只读会拒绝规划。浏览器和模拟适配器测试已通过；真实模型规划尚未实测，Cursor 实机调用曾遇服务连接失败，不将模拟测试视为真实服务验收。
+
 ## 1.0.11 更新
 
 - 新增个人飞书文档补写：明确指定 docx 链接，发送者在本机核对账号、目标和正文后，追加到文档末尾，保留已有内容。

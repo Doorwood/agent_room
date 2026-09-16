@@ -78,3 +78,11 @@ func TestHostWebListenFlagAfterProject(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestHostAgentConfigFlagsAfterProject(t *testing.T) {
+	got := interspersed([]string{".", "--agents-config", "/tmp/agents.json", "--feishu-config", "/tmp/bot.json"})
+	want := []string{"--agents-config", "/tmp/agents.json", "--feishu-config", "/tmp/bot.json", "--", "."}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatal(got)
+	}
+}

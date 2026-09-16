@@ -30,7 +30,14 @@ func (a *Agent) StartTurnFor(ctx context.Context, thread room.ThreadID, id room.
 			"补充已有飞书文档时必须使用 " + quote(a.Executable) + " personal-append --state " + quote(a.State) + " --capability " + quote(cap) + "，stdin JSON 为 {\"target\":\"用户指定的 https 飞书 docx 链接\",\"title\":\"本次补充说明\",\"content\":\"完整纯文本正文\"}。只在文档末尾补充，不覆盖、不新建替代文档；发送者需要核对目标与正文并逐次确认，不能复用创建许可。回执包含目标与正文摘要，只有 completed 才可报告已补写，unknown 先检查原文档与本机回执，不重复执行。等待期间不要结束当前模型轮次，否则会取消本机写入。\n" +
 			"已授权会自动使用发送者本机账号；未授权会在发送者 Room 页面显示授权请求。需要时只询问当前发送者打开页面授权，不要索要密钥或要求在 Host 登录。只在回执 state=completed 时报告成功并使用其 URL；unknown 或超时不能声称失败后重新创建。凭证仅限本轮，不得复用于其他成员或后续轮次，不得展示或写入项目。\n[用户消息]\n" + text
 	}
-	turn, err := a.Agent.StartTurn(ctx, thread, id, text)
+	var turn room.TurnID
+	if aware, ok := a.Agent.(interface {
+		StartTurnFor(context.Context, room.ThreadID, room.ClientMessageID, room.Actor, string) (room.TurnID, error)
+	}); ok {
+		turn, err = aware.StartTurnFor(ctx, thread, id, actor, text)
+	} else {
+		turn, err = a.Agent.StartTurn(ctx, thread, id, text)
+	}
 	if err != nil {
 		a.Broker.Invalidate()
 	}
@@ -53,4 +60,17 @@ func (a *Agent) SteerTurn(ctx context.Context, thread room.ThreadID, turn room.T
 		return &room.MutationError{Operation: "turn/steer", Certainty: room.DeliveryNotSent, Err: fmt.Errorf("个人权限模式请发送新的消息排队，避免补充要求改变创建操作的发送者")}
 	}
 	return a.Agent.SteerTurn(ctx, thread, turn, text)
+}
+
+func (a *Agent) AgentMembers() []room.AgentMember {
+	if d, ok := a.Agent.(room.AgentDirectory); ok {
+		return d.AgentMembers()
+	}
+	return nil
+}
+func (a *Agent) ValidateSubmission(in room.SubmitInput) error {
+	if v, ok := a.Agent.(room.SubmissionValidator); ok {
+		return v.ValidateSubmission(in)
+	}
+	return nil
 }

@@ -25,6 +25,14 @@ func (a observedAgent) StartReadOnlyTurn(ctx context.Context, thread room.Thread
 	return agent.StartReadOnlyTurn(ctx, thread, id, text)
 }
 
+func (a observedAgent) PlanCollaboration(ctx context.Context, prompt string) (string, error) {
+	planner, ok := a.Agent.(room.CollaborationPlanner)
+	if !ok {
+		return "", fmt.Errorf("隔离协作规划不可用")
+	}
+	return planner.PlanCollaboration(ctx, prompt)
+}
+
 func (a observedAgent) Events() <-chan room.AgentEvent { return a.events }
 func observeAgent(ctx context.Context, agent room.Agent, log *observability.Logger) (room.Agent, <-chan struct{}) {
 	events := make(chan room.AgentEvent)

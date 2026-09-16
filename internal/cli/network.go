@@ -64,6 +64,7 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 	}
 	advertise := ""
 	webListen := ""
+	feishuConfig := ""
 	answerView, noOpen := false, false
 	if args[0] != "join" && args[0] != "answers" {
 		fs.StringVar(&state, "state", "", "host state directory (default: current Git project session)")
@@ -71,6 +72,8 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 	if args[0] == "host" {
 		fs.StringVar(&address, "listen", address, "host listen IP:port (default: saved port, then 7443 or an available port)")
 		fs.StringVar(&advertise, "advertise", "", "address to display to participants")
+		fs.StringVar(&d.AgentConfigPath, "agents-config", "", "private agent workgroup JSON; persisted for this project")
+		fs.StringVar(&feishuConfig, "feishu-config", "", "private bot mapping JSON; uses named local lark-cli bot profile")
 		fs.StringVar(&webListen, "web-listen", "", "read-only web entry IP:port (default: host interface, port 7444 or an available port)")
 	}
 	if args[0] == "join" || args[0] == "answers" {
@@ -102,7 +105,7 @@ func runNetwork(ctx context.Context, args []string, out, diag io.Writer, d Depen
 				explicitListen = true
 			}
 		})
-		err = runHost(ctx, fs.Arg(0), state, address, advertise, webListen, !explicitListen, out, diag, d)
+		err = runHost(ctx, fs.Arg(0), state, address, advertise, webListen, feishuConfig, !explicitListen, out, diag, d)
 	case "join", "answers":
 		if fs.NArg() != 2 || name == "" {
 			return usage()
@@ -184,7 +187,7 @@ func interspersed(args []string) []string {
 		if len(a) > 1 && a[0] == '-' {
 			flags = append(flags, a)
 			switch a {
-			case "--web-listen", "-web-listen", "--role", "-role", "--state", "--listen", "--advertise", "--name", "-state", "-listen", "-advertise", "-name":
+			case "--agents-config", "-agents-config", "--feishu-config", "-feishu-config", "--web-listen", "-web-listen", "--role", "-role", "--state", "--listen", "--advertise", "--name", "-state", "-listen", "-advertise", "-name":
 				if i+1 < len(args) {
 					i++
 					flags = append(flags, args[i])
@@ -196,7 +199,7 @@ func interspersed(args []string) []string {
 	}
 	return append(append(flags, "--"), positionals...)
 }
-func runHost(ctx context.Context, project, state, address, advertise, webListen string, automaticListen bool, out, diag io.Writer, d Dependencies) error {
+func runHost(ctx context.Context, project, state, address, advertise, webListen, feishuConfig string, automaticListen bool, out, diag io.Writer, d Dependencies) error {
 	if err := d.CheckPlatform(); err != nil {
 		return err
 	}
@@ -245,8 +248,12 @@ func runHost(ctx context.Context, project, state, address, advertise, webListen 
 	if cfg.ProjectRoot != root {
 		return errors.New("this state belongs to a different project; use --state with a new directory")
 	}
+	var stopBot func()
 	var portal *hostview.Server
 	defer func() {
+		if stopBot != nil {
+			stopBot()
+		}
 		if portal != nil {
 			portal.Close()
 		}
@@ -299,6 +306,13 @@ func runHost(ctx context.Context, project, state, address, advertise, webListen 
 		if configDir, e := d.UserConfigDir(); e == nil {
 			if e = (dashboard.Catalog{Config: configDir}).RememberHost(state); e != nil {
 				fmt.Fprintln(diag, "Dashboard room index could not be saved:", e)
+			}
+		}
+		if feishuConfig != "" {
+			stopBot, err = startFeishuBot(ctx, feishuConfig, state, st, cfg.RoomID, remote, server, diag)
+			if err != nil {
+				remote.Close()
+				return nil, err
 			}
 		}
 		fmt.Fprintf(out, "Host ready\nproject: %s\nlisten: %s\nsession_id: %s\nJoin: agent_room join %s %s --name YOUR_NAME\nReview: agent_room requests --state %s\nBrowser on your computer: agent_room answers %s %s --name YOUR_NAME\nThe local client prints the Browser URL after starting.\n", root, remote.Address(), remote.SessionID(), advertise, remote.SessionID(), state, advertise, remote.SessionID())
@@ -369,6 +383,7 @@ func runJoinView(ctx context.Context, host, session, name string, view, readOnly
 		deps.OnRoom = window.Room
 		deps.OnActiveTurn = window.ActiveTurn
 		deps.OnQueue = window.Queue
+		deps.OnAgents = window.AgentMembers
 		deps.OnConnection = func(connected bool) {
 			window.Connection(connected)
 			if connected {

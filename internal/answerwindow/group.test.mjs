@@ -42,3 +42,10 @@ test('evicted prompt uses the final event as convertible source',()=>{
  const cards=groupMessages([part(50,1,'turn','working'),{...part(51,1,'turn','done','final'),time:'2026-09-08T12:00:00Z'}]);
  assert.equal(cards[0].seq,51);assert.equal(cards[0].time,'2026-09-08T12:00:00Z');
 });
+
+test('a worker result does not finish the entire workgroup',()=>{
+ const p={seq:1,role:'user',kind:'prompt',turn:'team',text:'@agent:builder @agent:reviewer 工作',ack:'处理中'};
+ const first={seq:2,role:'assistant',author:'工作组',turn:'team',text:'builder finished'};
+ let grouped=groupMessages([p,first]);assert.equal(grouped[1].author,'工作组');assert.equal(grouped[1].working,true);
+ grouped=groupMessages([{...p,ack:'任务已完成。'},first,{...first,seq:3,text:'reviewer finished'}]);assert.equal(grouped[1].working,false);assert.match(grouped[1].text,/builder finished[\s\S]*reviewer finished/);
+});

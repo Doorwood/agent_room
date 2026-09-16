@@ -44,6 +44,7 @@ type Deps struct {
 	OnRoom       func(string)
 	OnProject    func(string)
 	OnActiveTurn func(string)
+	OnAgents     func([]room.AgentMember)
 	OnQueue      func(room.Snapshot)
 	OnEvent      func(room.DurableEvent) error
 	OnMembers    func([]room.Member)
@@ -248,6 +249,7 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 	}()
 	defer func() { stop(); conn.Close(); <-readerDone; <-writerDone }()
 	lookups := make(map[string]string)
+	agentsSupported := true
 	send := func(e protocol.Envelope) error {
 		select {
 		case writes <- e:
@@ -270,6 +272,8 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 	welcomed, ready := false, false
 	lastFrame := c.deps.Clock.Now()
 	lastSend := lastFrame
+	rosterTimer := time.NewTicker(3 * time.Second)
+	defer rosterTimer.Stop()
 	timer := c.deps.Clock.NewTimer(20 * time.Second)
 	defer func() { timer.Stop() }()
 	for {
@@ -282,6 +286,26 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 			}
 		}
 		select {
+		case <-rosterTimer.C:
+			if ready && agentsSupported && c.deps.OnAgents != nil {
+				pendingRoster := false
+				for _, kind := range lookups {
+					if kind == "agents" {
+						pendingRoster = true
+						break
+					}
+				}
+				if !pendingRoster {
+					env, err := request(c.deps.Random, "agents", protocol.Empty{})
+					if err != nil {
+						return err
+					}
+					lookups[env.ID] = "agents"
+					if err = send(env); err != nil {
+						return err
+					}
+				}
+			}
 		case <-queue.overflow:
 			queue.report(diag)
 		case <-ctx.Done():
@@ -447,6 +471,13 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 						break
 					}
 				}
+				if e.Method == "agents" && e.Kind == protocol.KindResponse && c.deps.OnAgents != nil {
+					var agents []room.AgentMember
+					if err := json.Unmarshal(e.Body, &agents); err != nil {
+						return err
+					}
+					c.deps.OnAgents(agents)
+				}
 				if e.Method == "queue" && e.Kind == protocol.KindResponse && c.deps.OnQueue != nil {
 					var snapshot room.Snapshot
 					if err := json.Unmarshal(e.Body, &snapshot); err != nil {
@@ -455,6 +486,9 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 					c.deps.OnQueue(snapshot)
 				}
 				lookup := lookups[e.ID]
+				if lookup == "agents" && e.Kind == protocol.KindError {
+					agentsSupported = false
+				}
 				delete(lookups, e.ID)
 				if result, ok := replies[e.ID]; ok {
 					var resultErr error
@@ -508,6 +542,16 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 				}
 				if !ready {
 					ready = true
+					if c.deps.OnAgents != nil {
+						env, err := request(c.deps.Random, "agents", protocol.Empty{})
+						if err != nil {
+							return err
+						}
+						lookups[env.ID] = "agents"
+						if err = send(env); err != nil {
+							return err
+						}
+					}
 					if c.deps.OnQueue != nil {
 						env, err := request(c.deps.Random, "queue", protocol.Empty{})
 						if err != nil {
@@ -583,7 +627,17 @@ func (c *Client) session(ctx context.Context, launcher Launcher, target string, 
 						}
 					}
 				}
-				if ready && c.deps.OnQueue != nil && (d.Kind == "message/accepted" || strings.HasPrefix(d.Kind, "turn/")) {
+				if ready && agentsSupported && c.deps.OnAgents != nil && (strings.HasPrefix(d.Kind, "turn/") || (d.Kind == "item/completed" && strings.Contains(string(d.Payload), `"agentId"`))) {
+					env, err := request(c.deps.Random, "agents", protocol.Empty{})
+					if err != nil {
+						return err
+					}
+					lookups[env.ID] = "agents"
+					if err = send(env); err != nil {
+						return err
+					}
+				}
+				if ready && c.deps.OnQueue != nil && (d.Kind == "message/accepted" || strings.HasPrefix(d.Kind, "turn/") || (d.Kind == "item/completed" && strings.Contains(string(d.Payload), `"agentId"`))) {
 					env, err := request(c.deps.Random, "queue", protocol.Empty{})
 					if err != nil {
 						return err

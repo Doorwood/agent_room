@@ -130,5 +130,14 @@ func (w *Window) progress(e room.DurableEvent) error {
 	if text == "" {
 		return nil
 	}
-	return w.add(Answer{Seq: uint64(e.Seq), Text: text, Role: "assistant", Author: "模型", Kind: kind, Turn: body.Turn, Time: e.CreatedAt.Format(time.RFC3339)})
+	author := "模型"
+	var attribution struct {
+		Payload struct {
+			AgentID string `json:"agentId"`
+		} `json:"payload"`
+	}
+	if json.Unmarshal(e.Payload, &attribution) == nil && attribution.Payload.AgentID != "" {
+		author = "工作组"
+	}
+	return w.add(Answer{Seq: uint64(e.Seq), Text: text, Role: "assistant", Author: author, Kind: kind, Turn: body.Turn, Time: e.CreatedAt.Format(time.RFC3339)})
 }

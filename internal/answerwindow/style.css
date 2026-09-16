@@ -83,3 +83,11 @@ dialog textarea{border:1px solid #cbd6c8;background:#fafbf8;padding:12px;border-
 #header-project-name{display:inline-block;max-width: min(48vw,520px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;font-size:16px}
 
 #personal-push-account{white-space:pre-wrap;overflow-wrap:anywhere}#personal-push-grant{background:var(--accent);color:#fff}#personal-push-grant:disabled{opacity:.5}
+
+.agent-member{display:grid;gap:5px;padding:12px;margin-bottom:10px;border:1px solid #d4e2da;border-radius:10px;background:#eff6f1}.agent-member strong{color:#244b37}.agent-member span,.agent-member small{font-size:12px;color:#53655b}
+
+#agent-workgroup{display:grid;gap:8px;margin-top:10px}.worker-mention{text-align:left;padding:10px 12px;border:1px solid #dbe3ee;border-radius:8px;background:#f8faff;color:#263c58;cursor:pointer}.worker-mention:hover{background:#edf3ff;border-color:#8ba9e0}.worker-mention:disabled{opacity:.55;cursor:default}.workgroup-hint{font-size:12px;line-height:1.6;color:#64748b;margin:10px 0}
+
+#workflow-dialog{max-width:760px}#workflow-form{display:block}#workflow-steps fieldset{border:1px solid var(--line);border-radius:10px;margin:18px 0;padding:16px}#workflow-steps input,#workflow-steps select,#workflow-steps textarea{box-sizing:border-box;width:100%;font:inherit;padding:8px}#workflow-steps textarea{min-height:80px}#workflow-error{color:#a43434}#workflow-form>button{margin:8px 8px 0 0}
+
+#workflow-natural-form{display:block}#workflow-goal{box-sizing:border-box;width:100%;min-height:140px}#workflow-advanced{margin-top:24px}#workflow-natural-error{color:#a43434}

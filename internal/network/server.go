@@ -20,6 +20,7 @@ import (
 	"agent_romm/internal/resources"
 	"agent_romm/internal/room"
 	"agent_romm/internal/store"
+	"agent_romm/internal/workgroup"
 	"strings"
 )
 
@@ -27,6 +28,7 @@ type Sessions interface {
 	ServeMember(context.Context, net.Conn, room.Member)
 }
 type Server struct {
+	agentWorkers    *workgroup.RemoteBroker
 	personal        *personal.Broker
 	resourceMode    string
 	resourceExecute resources.Execute
@@ -188,7 +190,7 @@ func (s *Server) handle(c net.Conn, sessions Sessions) {
 	if err := readJSON(c, &h); err != nil {
 		return
 	}
-	if h.Operation != "" && h.Operation != "upload" && h.Operation != "download" && h.Operation != "questions" && h.Operation != "tasks" && h.Operation != "resources" {
+	if h.Operation != "" && h.Operation != "upload" && h.Operation != "download" && h.Operation != "questions" && h.Operation != "tasks" && h.Operation != "resources" && h.Operation != "agents" {
 		writeJSON(c, Reply{State: "unsupported-operation"})
 		return
 	}
@@ -222,6 +224,10 @@ func (s *Server) handle(c net.Conn, sessions Sessions) {
 		return
 	}
 	_ = c.SetDeadline(time.Time{})
+	if h.Operation == "agents" {
+		s.serveWorkers(c, member, h.Token)
+		return
+	}
 	if h.Operation == "resources" {
 		s.serveResources(c, member, h.Token)
 		return

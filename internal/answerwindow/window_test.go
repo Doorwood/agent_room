@@ -121,3 +121,30 @@ func TestSlowBrowserCannotBlockAnswerDelivery(t *testing.T) {
 		t.Fatal("slow browser blocked client")
 	}
 }
+
+func TestAgentDirectoryIsProjectedAndClearedOnRoomChange(t *testing.T) {
+	w, e := Start()
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer w.Close()
+	w.Room("one")
+	w.Queue(room.Snapshot{Agents: []room.AgentMember{{ID: "review", Name: "Reviewer", Provider: "exec", Status: "working"}}})
+	req := httptest.NewRequest("GET", w.URL()+"answers", nil)
+	rec := httptest.NewRecorder()
+	w.serve(rec, req)
+	var state struct {
+		Agents  []room.AgentMember `json:"agents"`
+		Members []room.Member      `json:"members"`
+	}
+	if e = json.Unmarshal(rec.Body.Bytes(), &state); e != nil {
+		t.Fatal(e)
+	}
+	if len(state.Agents) != 1 || state.Agents[0].ID != "review" || len(state.Members) != 0 {
+		t.Fatal(state)
+	}
+	w.Room("two")
+	if len(w.agents) != 0 {
+		t.Fatal("old room agent directory leaked")
+	}
+}

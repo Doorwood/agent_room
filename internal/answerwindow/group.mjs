@@ -29,6 +29,7 @@ export function groupMessages(messages) {
       card = model(key, message, prompts.get(message.turn));
       if (message.turn) turns.set(message.turn, card);
     }
+    if(message.author==='工作组') card.author='工作组';
     if (message.taskStatus) card.ack = message.taskStatus;
     if (message.kind === 'progress') {card.progress.push(message.text);if(!card.final)card.time=message.time;}
     else {
@@ -42,7 +43,7 @@ export function groupMessages(messages) {
     if (card.role !== 'assistant') continue;
     // Completion and exceptional states come from the durable prompt status.
     const terminal = /完成|失败|中断|跳过|需要确认|已继续处理/.test(card.ack);
-    card.working = !card.final && !terminal && !/等待/.test(card.ack);card.queued=!card.final && !terminal && /等待/.test(card.ack);
+    card.working = (card.author==='工作组' || !card.final) && !terminal && !/等待/.test(card.ack);card.queued=!card.final && !terminal && /等待/.test(card.ack);
     if (!card.final) card.text = terminal ? card.ack : card.progress.at(-1) || card.ack || '模型正在处理…';
   }
   return cards;

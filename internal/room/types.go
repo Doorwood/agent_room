@@ -343,6 +343,7 @@ type LiveItemSnapshot struct {
 	Partial  string
 }
 type Snapshot struct {
+	Agents              []AgentMember `json:"agents,omitempty"`
 	ProjectionTruncated bool
 	Status              RoomStatus
 	ThreadID            ThreadID

@@ -1,7 +1,7 @@
 {
   "name": "menmu-agent-room",
-  "version": "1.0.11",
-  "description": "Shared Codex project sessions with host-approved members, terminal and browser clients",
+  "version": "1.0.16",
+  "description": "Project collaboration rooms with Codex, Claude Code and Cursor agent members",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"

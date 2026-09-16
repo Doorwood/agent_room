@@ -25,6 +25,10 @@
 >
 > 项目处于早期阶段，适用于可信协作者。协作成员提交的工作会使用 Host 执行者的权限访问项目，请先了解 [权限与信任边界](SECURITY.md)。
 
+## 开发版：Codex 虚拟成员与飞书机器人
+
+Codex Agent 作为项目虚拟成员显示工作状态。可选飞书机器人支持文字查询 Room 历史、显式派工和读取授权群消息；发送者绑定已有 Room 成员，结果私聊返回。此功能尚未发布 npm，配置与范围见[接入说明](docs/design/codex-virtual-member-feishu.md)。
+
 ## 1.0.11 更新
 
 - 新增个人飞书文档补写：明确指定 docx 链接，发送者在本机核对账号、目标和正文后，追加到文档末尾，保留已有内容。
@@ -317,3 +321,53 @@ npm run test:browser
 ## License
 
 [MIT](LICENSE)。Codex 与第三方依赖分别遵循各自的许可和服务条款。
+
+
+## 开发版：Agent 工作组
+
+Room 现在区分人类领导组和 Agent 工作组。人类负责目标、权限与验收；Agent 负责执行。点击成员即可 @，也可发送 `@agent:builder @agent:reviewer 修复问题并复核`，由模型分析工作职责和依赖后交接结果。
+
+- 用稳定 ID、Provider 和版本化 Assignment 协议接入不同 Agent。
+- Codex 定向成员使用独立会话；其他服务可用 stdin/stdout JSON 适配器接入。
+- 同项目串行执行，支持停止、结果归属、任务关联和重启后核对，不自动重放未知结果。
+- 个人授权仍绑定真实人类发送者；询问者与参观者不会因分组显示获得派工权限。
+
+[配置示例](docs/examples/agents.json) · [架构、接入协议与使用说明](docs/design/agent-workgroup.md)
+
+此功能尚未发布到 npm，配置需使用包含该实现的新 Host。
+
+
+### 邀请本机 Cursor / Claude Code（开发版）
+
+在 Dashboard 连接 Room 后点击“邀请本机 Agent”，选择已安装的 Cursor 或 Claude Code 和执行权限。默认使用“Host 项目 · 任务独立副本”，无需填写本机项目目录。Agent 使用本机账号处理 Host 文件快照，结果回存 Host 独立目录，依赖任务可读取上游修改；主项目不会自动被覆盖。也可选择旧的“本机现有项目”模式。
+
+[配置、权限与联调说明](docs/design/agent-workgroup.md#dashboard-邀请-cursor--claude-code)
+
+### 用自然语言安排 Agent 协作
+
+直接描述成员职责即可，例如：
+
+```text
+@agent:claude.a @agent:codex.b Claude 负责 review，Codex 实现登录优化并测试。
+```
+
+系统会分析出“Codex 开发 → Claude 评审”的依赖，**不按 @ 的先后顺序执行**。也可点击左侧 **描述协作目标**，用自然语言生成请求，或直接发送 `/team 让多个 Agent 协作完成登录优化并评审`。成员需已加入 Room。
+
+规划使用独立进程、临时配置和只读模型会话，仅复用 Host Codex 文件登录，不加载 Host MCP 或主会话记忆；不需要填写依赖配置。计划通过成员、步骤与循环校验后自动执行，并在聊天展示。无法确定需求或规划无效时停止，提示澄清；只读模型能力不可用时也不会回退为未经规划的执行。普通单人问题继续使用原主会话。
+
+支持多个上游依赖，同项目按依赖串行执行；失败、中断或结果未知会停止后续步骤。Host 副本模式会传递任务快照和上游变更；本机现有项目模式不传递文件。手动 JSON 编排保留在高级选项，详见 [Agent 工作组设计](docs/design/agent-workgroup.md)。
+
+
+### Host 项目隔离副本（1.0.13）
+
+受邀 Agent 默认从 Host 的 Git 工作区取得快照，包括未提交修改及未被忽略的新文件。在本机新建任务副本执行后，把修改回传到 Host 独立目录；每项任务使用不同目录，不覆盖其他 Agent 的结果或 Host 主项目。聊天结果提供工作副本和变更回执路径，供验收与后续合并。
+
+后续依赖任务会组合上游变更：不同文件可以组合，同一文件冲突或 Host 基线变化会停止。主项目合并仍由人类安排，不自动提交或推送。快照目前最多 32 MiB / 10000 文件，不传 Git 元数据、忽略文件、`.env`、`.npmrc`、密钥目录或链接文件。依赖与运行环境需要在执行机器另行准备。
+
+说明及边界见 [Host 项目隔离副本](docs/design/host-agent-workspaces.md)。
+
+### 邀请本机 Codex 与成员命名（1.0.15）
+
+Dashboard 的“邀请本机 Agent”支持 Codex、Cursor 和 Claude Code。选择已安装的 Agent，可填写名称（留空使用工具名称），Room 显示为“成员名称-Agent 名称”，例如 `lumos-代码评审`。成员名称由 Host 根据认证身份确定，@ 路由仍使用唯一成员 ID。
+
+本机 Codex 使用邀请者机器上的 Codex 文件登录，每个步骤使用独立临时会话，不加载个人 MCP、插件或主会话。支持只读分析和编辑工作副本；默认 Host 项目副本沿用现有隔离、依赖产物交接机制。需在本机运行 `codex login`；不支持文件登录或隔离配置校验失败时明确拒绝，不改用 Host 登录。Host 和邀请者 Dashboard 都需要升级才能使用新邀请协议。

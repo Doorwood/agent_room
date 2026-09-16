@@ -13,7 +13,7 @@ test('dashboard connects, opens a safe chat, sends, disconnects and reconnects',
  const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.goto(url);
  await expect(page.getByRole('heading',{name:'我的 Rooms'})).toBeVisible();
- await expect(page.locator('#version')).toHaveText('本机客户端 v1.0.11');
+ await expect(page.locator('#version')).toHaveText('本机客户端 v1.0.15');
  await page.getByRole('button',{name:'连接',exact:true}).click();
  await expect(page.locator('.status')).toHaveText('已连接',{timeout:10000});
  await expect(page.locator('.room h3')).toHaveText('demo-project');
@@ -21,7 +21,7 @@ test('dashboard connects, opens a safe chat, sends, disconnects and reconnects',
  await expect(page.locator('.details-text')).toContainText('项目名称：demo-project');
  await expect(page.locator('.details-text')).toContainText('项目路径：/workspace/demo-project');
  const popupPromise=page.waitForEvent('popup');await page.getByRole('link',{name:'打开对话 ↗'}).click();const chat=await popupPromise;
- await expect(chat.locator('#client-version')).toHaveText('本机客户端 v1.0.11');
+ await expect(chat.locator('#client-version')).toHaveText('本机客户端 v1.0.15');
  await expect(chat.locator('#project-name')).toHaveText('demo-project');
  await expect(chat.locator('#header-project-name')).toHaveText('demo-project');
  await expect(chat).toHaveTitle('demo-project · agent_room');
@@ -393,4 +393,66 @@ test('personal document append confirms exact target even with existing create a
  await chat.locator('#personal-identity').click();await expect(chat.locator('#personal-account')).toContainText('Alice');
  await chat.locator('#personal-grant').click();await expect(chat.locator('#personal-dialog')).not.toBeVisible();expect(grants).toEqual([{action:'grant',id,accountId:'ou_alice123456'}]);
  await context.unroute('**/personal');await context.unroute('**/resources');await chat.close();
+});
+
+test('Codex virtual member is visible without becoming a human identity filter',async({page})=>{
+ await page.goto(url);
+ await page.locator('#address').fill('127.0.0.1:7484');await page.locator('#session').fill('9'.repeat(32)+'.'+'a'.repeat(64));await page.locator('#name').fill('agent-ui');await page.locator('#join').click();
+ const entry=page.locator('.room').filter({hasText:'127.0.0.1:7484'});await expect(entry.locator('.status')).toHaveText('已连接');
+ const opened=page.waitForEvent('popup');await entry.getByRole('link',{name:'打开对话 ↗'}).click();const chat=await opened;
+ await expect(chat.locator('#agent-member')).toContainText('Codex Agent');await expect(chat.locator('#agent-member')).toContainText('虚拟成员');
+ await expect(chat.locator('#agent-member-status')).toHaveText('待命');
+ await expect(chat.locator('#member-list')).not.toContainText('Codex Agent');
+ const state=await chat.evaluate(async()=>{const r=await fetch('answers');return r.json();});expect(state.agent).toMatchObject({id:'agent:codex',kind:'agent',status:'idle'});expect(state.members.every(m=>m.UID>0)).toBe(true);
+ await chat.screenshot({path:'dist/codex-virtual-member.png'});await chat.close();
+});
+
+test('workgroup mentions preserve order and human roles do not become worker identities',async({page,context})=>{
+ await page.goto(url);
+ await page.locator('#address').fill('127.0.0.1:7485');await page.locator('#session').fill('8'.repeat(32)+'.'+'a'.repeat(64));await page.locator('#name').fill('workgroup-ui');await page.locator('#join').click();
+ const entry=page.locator('.room').filter({hasText:'127.0.0.1:7485'});await expect(entry.locator('.status')).toHaveText('已连接');
+ let viewerRole='roommate';
+ await context.route('**/answers?**',async route=>{const target=new URL(route.request().url());target.search='';const response=await route.fetch({url:target.toString()});const body=await response.json();body.userRole=viewerRole;body.agents=[{id:'builder',name:'开发 Agent',provider:'codex',status:'idle'},{id:'reviewer',name:'Review Agent',provider:'exec',status:'idle'}];body.revision=String(body.revision)+viewerRole;await route.fulfill({response,json:body});});
+ const opened=page.waitForEvent('popup');await entry.getByRole('link',{name:'打开对话 ↗'}).click();const chat=await opened;
+ await expect(chat.getByRole('heading',{name:'Agent 工作组'})).toBeVisible();await expect(chat.getByRole('heading',{name:/人类领导组/})).toBeVisible();
+ await chat.locator('#message').fill('检查代码');
+ await chat.locator('[data-agent-id="builder"]').click();await chat.locator('[data-agent-id="reviewer"]').click();await chat.locator('[data-agent-id="builder"]').click();
+ await expect(chat.locator('#message')).toHaveValue('@agent:builder @agent:reviewer 检查代码');
+ await expect(chat.locator('#member-list')).not.toContainText('Review Agent');
+ await chat.screenshot({path:'dist/agent-workgroup.png'});
+ await chat.locator('#message').fill('实现登录检查');await chat.locator('#workflow-open').click();
+ await expect(chat.locator('#workflow-dialog')).toBeVisible();
+ await expect(chat.locator('#workflow-advanced')).not.toHaveAttribute('open','');
+ await chat.locator('#workflow-goal').fill('reviewer 负责 review，builder 实现登录优化');await chat.getByRole('button',{name:'生成协作请求',exact:true}).click();
+ await expect(chat.locator('#message')).toHaveValue('/team reviewer 负责 review，builder 实现登录优化');
+ await chat.locator('#message').fill('实现登录检查');await chat.locator('#workflow-open').click();await chat.locator('#workflow-advanced summary').click();
+ const steps=chat.locator('#workflow-steps fieldset');await expect(steps).toHaveCount(2);
+ await expect(steps.nth(1).locator('[data-field="dependsOn"]')).toHaveValue('develop');
+ await steps.nth(0).locator('[data-field="dependsOn"]').fill('review');
+ await chat.getByRole('button',{name:'生成到输入框'}).click();await expect(chat.locator('#workflow-error')).toContainText('循环');
+ await expect(chat.locator('#message')).toHaveValue('实现登录检查');
+ await steps.nth(0).locator('[data-field="dependsOn"]').fill('');
+ await chat.screenshot({path:'dist/agent-workflow.png'});
+ await chat.getByRole('button',{name:'生成到输入框'}).click();
+ await expect(chat.locator('#workflow-dialog')).not.toBeVisible();
+ const workflow=JSON.parse((await chat.locator('#message').inputValue()).slice(6));
+ expect(workflow.steps[0]).toEqual({id:'develop',agent:'builder',prompt:'实现登录检查',dependsOn:[]});
+ expect(workflow.steps[1].dependsOn).toEqual(['develop']);expect(workflow.steps[1].agent).toBe('reviewer');
+ await chat.locator('#workflow-open').click();await expect(chat.locator('#workflow-steps fieldset')).toHaveCount(2);await chat.locator('#workflow-cancel').click();
+
+ viewerRole='visitor';await expect(chat.locator('[data-agent-id="builder"]')).toBeDisabled();await expect(chat.locator('#workflow-open')).toBeDisabled();
+ await chat.close();await context.unroute('**/answers?**');
+});
+
+test('dashboard discovers native agents and previews local invitation scope',async({page,context})=>{
+ let invited=null;
+ await context.route('**/agents',route=>route.fulfill({json:{installed:[{provider:'codex',name:'Codex',installed:true},{provider:'cursor',name:'Cursor',installed:true},{provider:'claude-code',name:'Claude Code',installed:false}],running:[]}}));
+ await context.route('**/agent-invite',async route=>{invited=route.request().postDataJSON();await route.fulfill({json:{id:'local-invite',workerId:'w7-test',state:'idle'}})});
+ await page.goto(url);await page.locator('#address').fill('127.0.0.1:7486');await page.locator('#session').fill('7'.repeat(32)+'.'+'a'.repeat(64));await page.locator('#name').fill('native-agent-ui');await page.locator('#join').click();
+ const entry=page.locator('.room').filter({hasText:'127.0.0.1:7486'});await expect(entry.locator('.status')).toHaveText('已连接');await entry.getByRole('button',{name:'邀请本机 Agent'}).click();
+ await expect(page.locator('#invite-provider')).toHaveValue('codex');await page.locator('#invite-provider').selectOption('cursor');await page.locator('#invite-agent-name').fill('代码评审');await expect(page.locator('#invite-provider option[value="claude-code"]')).toHaveJSProperty('disabled',true);await expect(page.locator('#invite-mode')).toHaveValue('review');await expect(page.locator('#invite-agent-dialog')).toContainText('登录信息保留在本机');await expect(page.locator('#invite-project')).toHaveValue('');
+ await expect(page.locator('#invite-scope')).toHaveValue('host');await expect(page.locator('#invite-project')).not.toBeVisible();await page.locator('#invite-scope').selectOption('local');await page.locator('#invite-project').fill('/local/approved-project');await page.screenshot({path:'dist/dashboard-native-agents.png'});await page.locator('#invite-agent-submit').click();await expect(page.locator('#invite-agent-dialog')).not.toBeVisible();
+ expect(invited).toMatchObject({provider:'cursor',agentName:'代码评审',mode:'review',project:'/local/approved-project'});expect(invited.invitation).toMatch(/^[0-9a-f]{32}$/);expect(Object.keys(invited).sort()).toEqual(['agentName','id','invitation','mode','project','provider','workspaceScope']);
+ await entry.getByRole('button',{name:'邀请本机 Agent'}).click();await expect(page.locator('#invite-scope')).toHaveValue('host');await page.screenshot({path:'dist/dashboard-host-workspace.png'});await page.locator('#invite-agent-submit').click();await expect(page.locator('#invite-agent-dialog')).not.toBeVisible();expect(invited.provider).toBe('codex');expect(invited.agentName).toBe('');expect(invited.workspaceScope).toBe('host');expect(invited.project).toBe('');
+ await context.unroute('**/agents');await context.unroute('**/agent-invite');
 });

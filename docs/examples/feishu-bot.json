@@ -1,0 +1,15 @@
+{
+  "roomId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "profile": "agent-room-bot",
+  "appId": "cli_replace123456",
+  "name": "Codex Agent · 我的项目",
+  "bindings": [
+    {
+      "openId": "ou_replace123456",
+      "roomUID": 1000000001,
+      "allowWork": false,
+      "originChats": [],
+      "readableChats": []
+    }
+  ]
+}

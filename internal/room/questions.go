@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+// CollaborationPlanner returns a plan without executing work or loading the main session's tools.
+type CollaborationPlanner interface {
+	PlanCollaboration(context.Context, string) (string, error)
+}
+
 type ReadOnlyAgent interface {
 	StartReadOnlyTurn(context.Context, ThreadID, ClientMessageID, string) (TurnID, error)
 }

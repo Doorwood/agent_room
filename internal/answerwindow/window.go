@@ -43,6 +43,9 @@ var marked []byte
 //go:embed resources.mjs
 var resourceScript []byte
 
+//go:embed workflow.mjs
+var workflowScript []byte
+
 //go:embed tasks.mjs
 var taskScript []byte
 
@@ -87,6 +90,7 @@ type Window struct {
 	personalAccount       string
 	personalGit           *personal.GitIdentity
 
+	agents       []room.AgentMember
 	queue        []room.QueuedMessage
 	userRole     string
 	askReady     bool
@@ -196,6 +200,7 @@ func (w *Window) Room(id string) {
 		return
 	}
 	w.queue = nil
+	w.agents = nil
 	w.activeTurn = ""
 	w.room = id
 	if _, err := w.history.Exec("DELETE FROM answers"); err != nil {
@@ -238,7 +243,16 @@ func (w *Window) Add(e room.DurableEvent, text string) error {
 			return err
 		}
 	}
-	return w.add(Answer{Turn: body.Turn, Seq: uint64(e.Seq), Text: text, Role: "assistant", Author: "模型", Time: e.CreatedAt.Format(time.RFC3339)})
+	author := "模型"
+	var attribution struct {
+		Payload struct {
+			AgentID string `json:"agentId"`
+		} `json:"payload"`
+	}
+	if json.Unmarshal(e.Payload, &attribution) == nil && attribution.Payload.AgentID != "" {
+		author = "工作组"
+	}
+	return w.add(Answer{Turn: body.Turn, Seq: uint64(e.Seq), Text: text, Role: "assistant", Author: author, Time: e.CreatedAt.Format(time.RFC3339)})
 }
 func (w *Window) add(message Answer) error {
 	w.mu.Lock()
@@ -319,6 +333,9 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 	case w.path:
 		out.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = out.Write(page)
+	case w.path + "workflow.mjs":
+		out.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = out.Write(workflowScript)
 	case w.path + "tasks.mjs":
 		out.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		_, _ = out.Write(taskScript)
@@ -362,11 +379,13 @@ func (w *Window) serve(out http.ResponseWriter, r *http.Request) {
 			Host          string               `json:"host"`
 			Session       string               `json:"session"`
 			Viewer        string               `json:"viewer"`
+			Agents        []room.AgentMember   `json:"agents"`
+			Agent         room.VirtualMember   `json:"agent"`
 			Members       []room.Member        `json:"members"`
 			ClientVersion string               `json:"clientVersion"`
 			Connected     bool                 `json:"connected"`
 			ProjectName   string               `json:"projectName"`
-		}{w.queue, w.userRole, w.askReady, w.activeTurn, w.revision, page, more, w.status, w.room, w.host, w.session, w.viewer, nil, buildinfo.Version, w.connected, w.projectName}
+		}{w.queue, w.userRole, w.askReady, w.activeTurn, w.revision, page, more, w.status, w.room, w.host, w.session, w.viewer, w.agents, room.CodexMember(w.connected, w.activeTurn), nil, buildinfo.Version, w.connected, w.projectName}
 		for uid, name := range w.names {
 			state.Members = append(state.Members, room.Member{UID: uid, Name: name})
 		}
@@ -408,5 +427,13 @@ func (w *Window) Queue(snapshot room.Snapshot) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.queue = snapshot.Queue
+	w.agents = snapshot.Agents
+	w.revision++
+}
+
+func (w *Window) AgentMembers(members []room.AgentMember) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.agents = append([]room.AgentMember(nil), members...)
 	w.revision++
 }

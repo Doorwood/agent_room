@@ -30,11 +30,13 @@ import (
 	"agent_romm/internal/personal"
 	"agent_romm/internal/room"
 	"agent_romm/internal/store"
+	"agent_romm/internal/workgroup"
 )
 
 // Dependencies supplies typed embedding ports; production has no alternate
 // identity, executable, or transport selectors in its argument parser.
 type Dependencies struct {
+	AgentConfigPath string
 	Admin           admin.Dependencies
 	Repair          admin.RepairDependencies
 	Processes       codex.ProcessManager
@@ -386,6 +388,28 @@ func serveNetwork(ctx context.Context, state string, diagnostics io.Writer, d De
 	hub := daemon.NewHub(256, 16<<20)
 	logger := observability.New(diagnostics)
 	agent, agentDone := observeAgent(ownerCtx, rt, logger)
+	agentConfigPath := filepath.Join(state, "private", "agents.json")
+	if d.AgentConfigPath != "" {
+		if _, e := os.Stat(d.AgentConfigPath); e != nil {
+			return e
+		}
+		agentConfigPath = d.AgentConfigPath
+	}
+	groupConfig, err := workgroup.Load(agentConfigPath)
+	if err != nil {
+		return err
+	}
+	group, err := workgroup.New(ownerCtx, agent, groupConfig, cfg.ProjectRoot, filepath.Join(state, "private", "workgroup"))
+	if err != nil {
+		return err
+	}
+	defer group.Close()
+	if d.AgentConfigPath != "" {
+		if e := workgroup.Save(filepath.Join(state, "private", "agents.json"), groupConfig); e != nil {
+			return e
+		}
+	}
+	agent = group
 	var personalBroker *personal.Broker
 	if start != nil {
 		personalBroker = personal.New(func(ctx context.Context, uid room.UID, id room.ClientMessageID) error {
@@ -432,6 +456,7 @@ func serveNetwork(ctx context.Context, state string, diagnostics io.Writer, d De
 			return err
 		}
 		remote.EnablePersonal(personalBroker)
+		remote.EnableWorkers(group.Remote)
 		remoteErrors = remote.Errors()
 	}
 	if start == nil {

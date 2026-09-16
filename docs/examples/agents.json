@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "members": [
+    {"id": "codex", "name": "Codex Agent", "provider": "codex", "description": "通用开发成员"},
+    {"id": "builder", "name": "开发 Agent", "provider": "codex", "description": "实现与验证", "instructions": "依据人类要求实现代码，执行适当测试，说明修改与限制。"},
+    {"id": "reviewer", "name": "Review Agent", "provider": "codex", "description": "独立检查", "instructions": "审阅前序成员的结果并核对实际代码。汇报缺陷、风险与验证证据；未经人类要求不要修改代码。"}
+  ]
+}

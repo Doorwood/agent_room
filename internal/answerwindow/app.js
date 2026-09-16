@@ -1,3 +1,4 @@
+import {setupWorkflow} from './workflow.mjs';
 import {setupTasks,setTime} from './tasks.mjs';
 import {groupMessages} from './group.mjs';
 import {renderMarkdown} from './markdown.mjs';
@@ -90,7 +91,25 @@ function sidebar(state) {
   document.getElementById('session-id').textContent = state.session || '';
   document.getElementById('viewer-name').textContent = state.viewer || '';
   const members = state.members || [];
-  document.getElementById('member-count').textContent = members.length;
+  const agent=state.agent;document.getElementById('agent-member-status').textContent=agent?.status==='working'?'工作中':agent?.status==='idle'?'待命':'离线';
+  document.getElementById('member-count').textContent = members.length+' 人';
+  const agents=state.agents?.length?state.agents:[{id:'codex',name:'Codex Agent',provider:'codex',status:state.agent?.status || 'offline'}];
+  document.getElementById('workflow-open').disabled=state.connected===false || state.userRole!=='roommate' || !state.agents?.length;
+  const workers=document.getElementById('agent-workgroup');
+  const agentSignature=JSON.stringify([agents,state.connected,state.userRole]);
+  if(workers.dataset.signature!==agentSignature){
+    workers.dataset.signature=agentSignature;workers.replaceChildren();
+    for(const worker of agents){
+      const button=document.createElement('button');button.type='button';button.className='worker-mention';
+      button.dataset.agentId=worker.id;
+      const status=state.connected===false?'离线':worker.status==='working'?'工作中':'待命';
+      button.textContent=worker.name+' · '+status;
+      button.title='@agent:'+worker.id+' · '+worker.provider+(worker.description?' · '+worker.description:'');
+      button.disabled=state.connected===false || (state.userRole && state.userRole!=='roommate');
+      button.onclick=()=>{const taskInput=document.getElementById('task-text');const draftInput=taskInput?.getClientRects().length?taskInput:input;if(draftInput.disabled || sending)return;const token='@agent:'+worker.id;let value=draftInput.value;const prefix=value.match(/^(?:@agent:[a-z][a-z0-9_.-]*\s+)*/)?.[0] || '';if(!prefix.split(/\s+/).includes(token)){draftInput.value=prefix+token+' '+value.slice(prefix.length);draftInput.dispatchEvent(new Event('input',{bubbles:true}));}draftInput.focus();};
+      workers.append(button);
+    }
+  }
   const signature = JSON.stringify(members);
   if (signature === memberSignature) return;
   memberSignature = signature;
@@ -151,7 +170,7 @@ function updateCard(article, answer) {
   if (r.signature === signature) return;
   r.signature = signature;
   article.className = answer.role === 'user' ? 'user-message' : 'model-message task-message';
-  r.label.textContent = (answer.author || '成员') + (answer.kind === 'note' ? ' · 笔记' : answer.kind === 'steer' ? ' · 补充要求' : answer.role === 'assistant' ? (answer.queued ? ' · 排队中' : answer.working ? ' · 处理中' : answer.final ? ' · 回答' : ' · 任务状态') : '');
+  r.label.textContent = (answer.role === 'assistant' ? (answer.author==='工作组'?'Agent 工作组':'Codex Agent') : (answer.author || '成员')) + (answer.kind === 'note' ? ' · 笔记' : answer.kind === 'steer' ? ' · 补充要求' : answer.role === 'assistant' ? (answer.queued ? ' · 排队中' : answer.working ? ' · 处理中' : answer.final ? ' · 回答' : ' · 任务状态') : '');
   article.classList.toggle('is-working', Boolean(answer.working));
   if (answer.role === 'assistant') renderMarkdown(r.body,answer.text); else {r.body.textContent = answer.text;for(const file of answer.attachments || []){const link=document.createElement('a');link.href='file?id='+encodeURIComponent(file.id);link.target='_blank';link.rel='noopener noreferrer';link.className='sent-attachment';link.textContent=file.name;if(/\.(png|jpg|jpeg|gif|webp)$/i.test(file.name)){const img=document.createElement('img');img.src=link.href+'&preview=1';img.alt=file.name;img.loading='lazy';link.prepend(img);}r.body.append(link);}}
   r.acknowledgement.hidden = answer.role !== 'user' || !answer.ack;
@@ -359,3 +378,5 @@ document.getElementById('question-view').onclick=()=>{tasks.show(false);question
 document.getElementById('question-member').onchange=event=>{questionMember=event.target.value;loadQuestions();};
 
 document.getElementById('task-view').onclick=()=>tasks.show(true);
+
+setupWorkflow({getState:()=>lastState, getComposer:()=>{const task=document.getElementById('task-text');return task?.getClientRects().length?task:input;}, isSending:()=>sending});

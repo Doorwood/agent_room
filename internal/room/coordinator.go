@@ -176,6 +176,13 @@ func (c *Coordinator) handleCommand(command any) {
 }
 
 func (c *Coordinator) handleSubmit(ctx context.Context, actor Actor, input SubmitInput, note bool) (Acceptance, error) {
+	if !note {
+		if validator, ok := c.agent.(SubmissionValidator); ok {
+			if err := validator.ValidateSubmission(input); err != nil {
+				return Acceptance{}, err
+			}
+		}
+	}
 	var got Acceptance
 	var err error
 	if note {
@@ -210,6 +217,7 @@ func (c *Coordinator) dispatchNext(ctx context.Context) error {
 	if next.Input.TaskID > 0 {
 		text = fmt.Sprintf("[project task id: %d]\n", next.Input.TaskID) + text
 	}
+	ctx = AssignmentContext(ctx, next.Input)
 	var turnID TurnID
 	var err error
 	if bound, ok := c.agent.(interface {
@@ -482,6 +490,16 @@ func (c *Coordinator) failPersistence(err error) {
 func (c *Coordinator) snapshot() Snapshot {
 	revision, liveItems := c.projection.Snapshot()
 	s := Snapshot{Status: c.state.status, ThreadID: c.state.threadID, Queue: append([]QueuedMessage(nil), c.state.queue...), ProjectionRevision: revision, LiveItems: liveItems, LatestSeq: c.state.latestSeq}
+	if directory, ok := c.agent.(AgentDirectory); ok {
+		s.Agents = directory.AgentMembers()
+		if c.state.active != nil && !strings.HasPrefix(string(c.state.active.TurnID), "workgroup-") {
+			for i := range s.Agents {
+				if s.Agents[i].ID == "codex" {
+					s.Agents[i].Status = "working"
+				}
+			}
+		}
+	}
 	s.Active = copyBinding(c.state.active)
 	s.ProjectionTruncated = c.projection.truncated
 	return s

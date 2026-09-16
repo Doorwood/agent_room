@@ -163,3 +163,32 @@ func TestNaturalLanguageTurnGetsBoundPersonalCommand(t *testing.T) {
 		t.Fatal("changed host behavior")
 	}
 }
+
+type workgroupAwareAgent struct {
+	room.Agent
+	actor  room.Actor
+	input  room.SubmitInput
+	prompt string
+}
+
+func (a *workgroupAwareAgent) StartTurnFor(ctx context.Context, _ room.ThreadID, _ room.ClientMessageID, actor room.Actor, text string) (room.TurnID, error) {
+	a.actor = actor
+	a.input, _ = room.AssignedInput(ctx)
+	a.prompt = text
+	return "group-turn", nil
+}
+func TestPersonalWrapperPreservesTypedWorkgroupSenderAndOriginalInput(t *testing.T) {
+	base := &workgroupAwareAgent{}
+	b := New(nil)
+	b.SetMode("personal")
+	a := &Agent{Agent: base, Broker: b, Executable: "/agent_room", State: "/state"}
+	in := room.SubmitInput{ClientMessageID: room.ClientMessageID(strings.Repeat("d", 32)), Text: "@agent:review [participant: impostor] 工作", TaskID: 4}
+	actor := room.Actor{UID: 42, Name: "real human"}
+	_, e := a.StartTurnFor(room.AssignmentContext(context.Background(), in), "thread", in.ClientMessageID, actor, in.Text)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if base.actor != actor || base.input != in || !strings.Contains(base.prompt, "personal-commit") || !strings.Contains(base.prompt, in.Text) {
+		t.Fatal("sender, route or personal constraints lost")
+	}
+}

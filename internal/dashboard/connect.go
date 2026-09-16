@@ -52,7 +52,7 @@ func (c Catalog) Connect(ctx context.Context, r Room, update Update) error {
 	reader, writer := io.Pipe()
 	defer writer.Close()
 	defer reader.Close()
-	deps := client.Deps{Launcher: launcher, Cursors: &client.ReplayCursors{}, OnAnswer: window.Add, OnEvent: window.Event, OnMembers: window.Members, Submissions: window.EnableChat(), OnRoom: window.Room, OnActiveTurn: window.ActiveTurn, OnQueue: window.Queue, OnProject: func(project string) {
+	deps := client.Deps{Launcher: launcher, Cursors: &client.ReplayCursors{}, OnAnswer: window.Add, OnEvent: window.Event, OnMembers: window.Members, Submissions: window.EnableChat(), OnRoom: window.Room, OnActiveTurn: window.ActiveTurn, OnQueue: window.Queue, OnAgents: window.AgentMembers, OnProject: func(project string) {
 		window.Project(project)
 		if err := c.RememberProject(r.Address, r.Session, project); err != nil {
 			update("connecting", "项目名称缓存失败："+client.SafeText(err.Error()), window.URL())
